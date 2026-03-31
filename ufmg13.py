@@ -6,7 +6,7 @@ from scipy.signal import butter, filtfilt
 from scipy.integrate import simpson
 
 # ==========================================================
-# 1. CONFIGURAÇÃO VISUAL (BRANCO E PRETO)
+# 1. ESTILO VISUAL (BRANCO E PRETO MINIMALISTA)
 # ==========================================================
 st.set_page_config(page_title="Análise EMG UFMG", layout="wide")
 
@@ -15,18 +15,20 @@ st.markdown("""
     .stApp { background-color: white !important; color: black !important; }
     h1, h2, h3, p, span, label, .stMarkdown { color: black !important; font-family: sans-serif; }
     .report-box { 
-        border: 2px solid #000; 
-        padding: 20px; 
-        font-family: 'Courier New', Courier, monospace; 
+        border: 1px solid #000; 
+        padding: 15px; 
+        font-family: monospace; 
         margin-top: 10px;
         background-color: #fff;
         color: #000;
+        line-height: 1.5;
     }
+    hr { border: 0.5px solid #000; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================================
-# 2. FUNÇÕES TÉCNICAS
+# 2. FUNÇÕES TÉCNICAS (CONSOLIDADAS)
 # ==========================================================
 
 def read_slk_file(file):
@@ -53,11 +55,12 @@ def process_emg_core(signal, fs=2000):
     b, a = butter(4, [6/nyq, 500/nyq], btype='bandpass')
     filt = filtfilt(b, a, signal)
     rect = np.abs(filt - np.mean(filt))
-    window = int(fs * 0.01) # 10ms
+    window = int(fs * 0.01) # RMS 10ms
     rms = np.sqrt(np.convolve(rect**2, np.ones(window)/window, mode='same'))
     return rms
 
 def detect_onset_core(rms_signal, fs=2000):
+    # Requer no mínimo 400 amostras (200ms) para criar a baseline da seleção
     if len(rms_signal) < 400: return None, 0
     base_mean = np.mean(rms_signal[:400])
     base_std = np.std(rms_signal[:400])
@@ -68,15 +71,16 @@ def detect_onset_core(rms_signal, fs=2000):
     return None, thresh
 
 # ==========================================================
-# 3. INTERFACE E LÓGICA DE SELEÇÃO
+# 3. INTERFACE E EXTRATOR DE SELEÇÃO ROBUSTO
 # ==========================================================
 st.title("Análise de EMG - Protocolo UFMG")
 st.write("---")
+st.info("🖱️ **INSTRUÇÃO:** Desenhe uma caixa (clique e arraste lateralmente) no gráfico. A análise daquela área aparecerá imediatamente embaixo.")
 
-uploaded_file = st.sidebar.file_uploader("Carregar arquivo (.slk ou .csv)", type=["slk", "csv"])
+uploaded_file = st.sidebar.file_uploader("Fazer Upload do Arquivo (.slk ou .csv)", type=["slk", "csv"])
 
 if uploaded_file:
-    # Garantir que os dados fiquem na memória
+    # Memória da Sessão para evitar recarregamentos
     if 'raw_df' not in st.session_state or st.session_state.get('last_file') != uploaded_file.name:
         if uploaded_file.name.endswith('.slk'):
             df, names = read_slk_file(uploaded_file)
@@ -99,62 +103,81 @@ if uploaded_file:
         with ui_col:
             st.subheader(label)
             
-            # Sinal completo para o gráfico
+            # Sinal visual de fundo
             full_rms = process_emg_core(df_full[ch].values, fs)
             
             fig = go.Figure(go.Scatter(x=df_full['time'], y=full_rms, line=dict(color='black', width=1)))
             fig.update_layout(
                 height=350, margin=dict(l=10, r=10, t=10, b=10),
                 paper_bgcolor='white', plot_bgcolor='white',
-                dragmode='select', selectdirection='h'
+                dragmode='select', selectdirection='h',
+                xaxis=dict(showgrid=True, gridcolor='#eee', title="Tempo (s)"),
+                yaxis=dict(showgrid=True, gridcolor='#eee')
             )
             
-            # Captura o evento de seleção (IMPORTANT: on_select="rerun")
+            # Captura a seleção
             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{i}")
             
-            # Tenta obter o intervalo de tempo da seleção
+            # EXTRATOR ROBUSTO DE COORDENADAS (Busca pela Caixa ou pelos Pontos)
             t_start, t_end = None, None
-            if event and 'selection' in event:
-                if 'range' in event['selection'] and 'x' in event['selection']['range']:
-                    t_start, t_end = event['selection']['range']['x']
             
-            # SE HOUVER SELEÇÃO, REALIZA A ANÁLISE
-            if t_start is not None and t_end is not None:
-                mask = (df_full['time'] >= t_start) & (df_full['time'] <= t_end)
+            if event and isinstance(event, dict):
+                selection = event.get("selection", {})
+                box = selection.get("box", [])
+                points = selection.get("points", [])
+                
+                # Se desenhou uma caixa (comportamento padrão para sinais grandes)
+                if box and len(box) > 0:
+                    t_start = box[0]["x"][0]
+                    t_end = box[0]["x"][1]
+                # Fallback: Se conseguiu capturar os pontos individuais
+                elif points and len(points) > 0:
+                    x_vals = [p["x"] for p in points]
+                    t_start = min(x_vals)
+                    t_end = max(x_vals)
+
+            # SELEÇÃO VALIDADA: RODA A ANÁLISE!
+            if t_start is not None and t_end is not None and t_start != t_end:
+                # Ordena caso a pessoa tenha arrastado da direita para a esquerda
+                t_min, t_max = min(t_start, t_end), max(t_start, t_end)
+                
+                # Recorta o dataframe exatamente no intervalo selecionado
+                mask = (df_full['time'] >= t_min) & (df_full['time'] <= t_max)
                 df_seg = df_full.loc[mask].reset_index(drop=True)
                 
-                if not df_seg.empty:
+                if len(df_seg) >= 400: # No mínimo 200ms para ter precisão na baseline
                     seg_rms = process_emg_core(df_seg[ch].values, fs)
                     idx_on, thr = detect_onset_core(seg_rms, fs)
                     
-                    # Métricas
                     v_peak = np.max(seg_rms)
                     t_peak = df_seg['time'].iloc[np.argmax(seg_rms)]
+                    v_mean = np.mean(seg_rms)
                     v_area = simpson(seg_rms, dx=1/fs)
                     
                     st.markdown(f"""
                     <div class="report-box">
-                        <strong>RELATÓRIO: {label.upper()}</strong><br>
-                        Intervalo: {t_start:.2f}s - {t_end:.2f}s<br><br>
+                        <strong>DADOS DA SELEÇÃO ({t_min:.2f}s - {t_max:.2f}s):</strong><br>
                         • ONSET: {df_seg['time'].iloc[idx_on] if idx_on is not None else "N/D"} s<br>
-                        • PICO: {v_peak:.2f} µV<br>
-                        • TEMPO DO PICO: {t_peak:.4f} s<br>
-                        • RMS MÉDIO: {np.mean(seg_rms):.2f} µV<br>
-                        • ÁREA: {v_area:.4f} µV.s<br>
-                        • THRESHOLD: {thr:.4f} µV
+                        • PICO MÁX: {v_peak:.2f} µV<br>
+                        • TEMPO PICO: {t_peak:.4f} s<br>
+                        • RMS MÉDIO: {v_mean:.2f} µV<br>
+                        • ÁREA (INTEGRAL): {v_area:.4f} µV.s<br>
+                        • THRESHOLD BASE: {thr:.4f} µV
                     </div>
                     """, unsafe_allow_html=True)
                     
                     if idx_on is not None:
                         onsets_final[i] = df_seg['time'].iloc[idx_on]
+                else:
+                    st.warning("⚠️ Selecione um trecho maior (mínimo de 200ms) para permitir o cálculo do baseline.")
             else:
-                st.info("👆 Selecione um intervalo no gráfico acima para analisar.")
+                st.write("⬆️ *Faça uma seleção no gráfico para processar os dados.*")
 
-    # Sincronismo
+    # RESULTADO FINAL: SINCRONISMO
     if len(onsets_final) == 2:
         st.write("---")
         delay = abs(onsets_final[0] - onsets_final[1]) * 1000
-        st.subheader(f"Diferença de Sincronismo: {delay:.2f} ms")
+        st.write(f"### Diferença de Sincronismo (Delay): **{delay:.2f} ms**")
 
 else:
-    st.info("Aguardando ficheiro para começar.")
+    st.info("Aguardando arquivo para iniciar.")
