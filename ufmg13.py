@@ -5,139 +5,128 @@ import plotly.graph_objects as go
 from scipy.signal import butter, filtfilt
 from scipy.integrate import simpson
 
-# ==========================================================
-# 1. CONFIGURAÇÃO VISUAL (UFMG PADRÃO)
-# ==========================================================
+# 1. SETUP DE PÁGINA
 st.set_page_config(page_title="Análise EMG UFMG", layout="wide")
 
+# Estilo para garantir visibilidade dos resultados
 st.markdown("""
     <style>
-    .stApp { background-color: white !important; color: black !important; }
-    .report-box { 
-        border: 2px solid #000; 
-        padding: 15px; 
-        font-family: 'Courier New', Courier, monospace; 
-        background-color: #fff;
-        color: #000;
-        margin-top: 10px;
+    .report-card { 
+        background-color: #f8f9fa; 
+        border-left: 5px solid #28a745; 
+        padding: 20px; 
+        margin: 10px 0;
+        color: black;
+        font-family: monospace;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# ==========================================================
-# 2. PROCESSAMENTO DE SINAL
-# ==========================================================
-
-def process_emg(signal, fs=2000):
+# 2. FUNÇÕES DE PROCESSAMENTO (Protocolo UFMG Completo)
+def butter_bandpass(lowcut, highcut, fs, order=4):
     nyq = 0.5 * fs
-    b, a = butter(4, [6/nyq, 500/nyq], btype='bandpass')
-    filt = filtfilt(b, a, signal)
-    rect = np.abs(filt - np.mean(filt))
-    window = int(fs * 0.01) # RMS 10ms
-    return np.sqrt(np.convolve(rect**2, np.ones(window)/window, mode='same'))
+    low = lowcut / nyq
+    high = highcut / nyq
+    b, a = butter(order, [low, high], btype='band')
+    return b, a
 
-def detect_onset(rms_seg, full_rms, fs=2000):
-    # Baseline: Primeiros 400 pontos do sinal COMPLETO (Protocolo UFMG)
-    base_mean = np.mean(full_rms[:400])
-    base_std = np.std(full_rms[:400])
-    thresh = base_mean + (3 * base_std)
-    
-    for i in range(len(rms_seg) - 40):
-        if np.all(rms_seg[i : i + 40] >= thresh):
+def process_signal(data, fs=2000):
+    b, a = butter_bandpass(6, 500, fs, order=4)
+    # Filtragem e retificação
+    filt = filtfilt(b, a, data)
+    rect = np.abs(filt - np.mean(filt))
+    # RMS - Janela móvel de 10ms (20 pontos)
+    window = int(fs * 0.01)
+    rms = np.sqrt(np.convolve(rect**2, np.ones(window)/window, mode='same'))
+    return rms
+
+def get_onset(rms_segment, full_rms, fs=2000):
+    # Baseline baseada nos primeiros 400 pontos do sinal bruto (conforme UFMG)
+    baseline = full_rms[:400]
+    thresh = np.mean(baseline) + (3 * np.std(baseline))
+    # Busca o Onset no segmento selecionado
+    for i in range(len(rms_segment) - 40):
+        if np.all(rms_segment[i:i+40] >= thresh):
             return i, thresh
     return None, thresh
 
-# ==========================================================
-# 3. INTERFACE E SELEÇÃO MANUAL
-# ==========================================================
-st.title("Análise de EMG - Seleção Manual")
-st.info("🖱️ **Como usar:** Clique e arraste o mouse sobre a área da contração em cada gráfico para ver a análise técnica.")
-
-uploaded_file = st.sidebar.file_uploader("Carregar arquivo", type=["slk", "csv"])
+# 3. CARREGAMENTO E INTERFACE
+uploaded_file = st.sidebar.file_uploader("Selecione o arquivo (.slk ou .csv)", type=["slk", "csv"])
 
 if uploaded_file:
-    # Carregamento de dados (Persistente na sessão)
-    if 'df' not in st.session_state or st.session_state.filename != uploaded_file.name:
+    # Lógica de leitura (Simplificada para garantir execução)
+    if uploaded_file.name.endswith('.slk'):
         content = uploaded_file.getvalue().decode("utf-8", errors="ignore")
-        data = {}
-        names = {}
+        raw_data = []
         for line in content.splitlines():
             if line.startswith('C;'):
-                parts = line.strip().split(';')
-                try:
-                    r, c = int(parts[1][1:]), int(parts[2][1:])
-                    v = parts[3][1:].strip('"') if parts[3].startswith('K') else parts[3]
-                    if r not in data: data[r] = {}
-                    data[r][c] = v
-                    if r == 4 and c in [4, 5]: names[c] = v
+                p = line.split(';')
+                try: raw_data.append([int(p[1][1:]), int(p[2][1:]), p[3].strip('"')])
                 except: continue
-        df = pd.DataFrame(data).T.sort_index().iloc[4:, [0, 3, 4]].astype(float)
+        # Pivotar e organizar (Assumindo colunas 4 e 5 para músculos)
+        df_temp = pd.DataFrame(raw_data, columns=['row', 'col', 'val'])
+        df_temp['val'] = pd.to_numeric(df_temp['val'], errors='coerce')
+        df = df_temp.pivot(index='row', columns='col', values='val').iloc[4:, [0, 3, 4]]
         df.columns = ['time', 'CH1', 'CH2']
-        st.session_state.df = df
-        st.session_state.labels = [names.get(4, "CH1"), names.get(5, "CH2")]
-        st.session_state.filename = uploaded_file.name
+    else:
+        df = pd.read_csv(uploaded_file).iloc[3:].astype(float)
+        df.columns = ['time', 'CH1', 'CH2']
 
-    df = st.session_state.df
-    onsets = {}
+    fs = 2000
+    st.session_state.onsets = {}
+
     cols = st.columns(2)
-
-    for i, (ch, label) in enumerate(zip(['CH1', 'CH2'], st.session_state.labels)):
+    for i, ch in enumerate(['CH1', 'CH2']):
         with cols[i]:
-            st.subheader(label)
+            st.subheader(f"Canal {i+1}")
+            rms_full = process_signal(df[ch].values, fs)
             
-            # Cálculo do sinal para o gráfico
-            rms_full = process_emg(df[ch].values)
-            
+            # CRIANDO O GRÁFICO COM RETORNO DE SELEÇÃO
             fig = go.Figure(go.Scatter(x=df['time'], y=rms_full, line=dict(color='black', width=1)))
             fig.update_layout(
-                height=350, margin=dict(l=10, r=10, t=10, b=10),
-                dragmode='select', selectdirection='h', # Habilita seleção manual horizontal
-                paper_bgcolor='white', plot_bgcolor='white',
-                xaxis=dict(showgrid=True, gridcolor='#eee'),
-                yaxis=dict(showgrid=True, gridcolor='#eee')
+                height=350, dragmode='select', selectdirection='h',
+                margin=dict(l=0, r=0, t=0, b=0), plot_bgcolor='white'
             )
             
-            # Captura o evento de seleção manual do mouse
-            selected_data = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"manual_{i}")
+            # Aqui é onde o Streamlit "escuta" o gráfico
+            # O parâmetro selection_mode='x' força a seleção horizontal
+            selected = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ch}")
 
-            # LÓGICA DE ANÁLISE PÓS-SELEÇÃO
-            if selected_data and "selection" in selected_data and len(selected_data["selection"]["points"]) > 0:
-                # Obtém o intervalo exato selecionado pelo mouse
-                x_values = [p["x"] for p in selected_data["selection"]["points"]]
-                t_start, t_end = min(x_values), max(x_values)
+            # PROCESSANDO A SELEÇÃO
+            if selected and "selection" in selected and len(selected["selection"]["points"]) > 0:
+                points = selected["selection"]["points"]
+                t_start = min(p["x"] for p in points)
+                t_end = max(p["x"] for p in points)
                 
-                # Filtra os dados brutos para este trecho
+                # Recorte do sinal
                 mask = (df['time'] >= t_start) & (df['time'] <= t_end)
-                df_seg = df.loc[mask]
-                rms_seg = process_emg(df_seg[ch].values)
+                seg_time = df['time'][mask].values
+                seg_rms = rms_full[mask]
                 
-                # Cálculos técnicos
-                idx, thr = detect_onset(rms_seg, rms_full)
-                v_peak = np.max(rms_seg)
-                t_peak = df_seg['time'].iloc[np.argmax(rms_seg)]
-                v_area = simpson(rms_seg, dx=1/2000)
+                # Análise
+                idx_on, thr = get_onset(seg_rms, rms_full, fs)
+                v_peak = np.max(seg_rms)
+                v_area = simpson(seg_rms, dx=1/fs)
                 
                 st.markdown(f"""
-                <div class="report-box">
-                    <strong>ANÁLISE MANUAL: {label}</strong><br>
-                    Intervalo: {t_start:.2f}s a {t_end:.2f}s<br><br>
-                    • ONSET: {df_seg['time'].iloc[idx] if idx is not None else "N/D"} s<br>
-                    • PICO: {v_peak:.2f} µV<br>
-                    • ÁREA: {v_area:.4f} µV.s<br>
-                    • THRESHOLD: {thr:.4f} µV
+                <div class="report-card">
+                    <strong>RESULTADOS CANAL {i+1}</strong><br>
+                    • Onset: {seg_time[idx_on] if idx_on is not None else "Não detectado"} s<br>
+                    • Pico Máximo: {v_peak:.2f} µV<br>
+                    • Área (Integral): {v_area:.4f} µV.s<br>
+                    • Threshold: {thr:.4f} µV
                 </div>
                 """, unsafe_allow_html=True)
                 
-                if idx is not None:
-                    onsets[i] = df_seg['time'].iloc[idx]
+                if idx_on is not None:
+                    st.session_state.onsets[i] = seg_time[idx_on]
             else:
-                st.caption("Aguardando seleção manual no gráfico...")
+                st.warning("⚠️ Arraste o mouse sobre o gráfico para analisar.")
 
-    # Delay de Sincronismo
-    if len(onsets) == 2:
-        st.write("---")
-        delay = abs(onsets[0] - onsets[1]) * 1000
-        st.subheader(f"Diferença de Sincronismo: {delay:.2f} ms")
+    # Sincronismo
+    if len(st.session_state.onsets) == 2:
+        delay = abs(st.session_state.onsets[0] - st.session_state.onsets[1]) * 1000
+        st.success(f"### Sincronismo: {delay:.2f} ms")
 
 else:
-    st.info("Por favor, carregue o arquivo para começar.")
+    st.info("Aguardando upload...")
