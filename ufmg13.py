@@ -51,48 +51,17 @@ LANGS = {
         "wait": "Waiting...",
         "thresh": "Threshold",
         "dl_btn": "📥 Download CSV Report"
-    },
-    "ESPAÑOL": {
-        "title": "EMGExpert — Ciencia y Práctica",
-        "upload_label": "Cargar archivo (.slk o .csv)",
-        "info": "🖱️ Arrastre para analizar.",
-        "rep": "INFORME TÉCNICO",
-        "ons": "🟢 COMIENZO (ONSET)",
-        "peak": "📈 PICO MÁXIMO",
-        "mean_rms": "🌊 RMS MEDIO",
-        "area": "📊 ÁREA (INTEGRAL)",
-        "sync": "Delay",
-        "wait": "Esperando...",
-        "thresh": "Umbral",
-        "dl_btn": "📥 Descargar Informe CSV"
-    },
-    "CHINESE (SIMPLIFIED)": {
-        "title": "EMGExpert — 科学与实践",
-        "upload_label": "上传文件 (.slk 或 .csv)",
-        "info": "🖱️ 拖动进行分析",
-        "rep": "技术报告",
-        "ons": "起始点",
-        "peak": "最大峰值",
-        "area": "面积",
-        "sync": "同步延迟",
-        "wait": "等待中...",
-        "thresh": "阈值",
-        "dl_btn": "📥 下载报告"
     }
 }
 
 # ==========================================================
-# 3. CSS CUSTOMIZADO (VISIBILIDADE TOTAL + EXPLORE TOOLS)
+# 3. CSS CUSTOMIZADO (BOTÃO UPLOAD + DOWNLOAD + IDIOMAS)
 # ==========================================================
 st.markdown(f"""
     <style>
-    /* FUNDO DO APP */
     .stApp {{ background-color: {HUB_BG} !important; }}
-    
-    /* BARRA LATERAL */
     [data-testid="stSidebar"] {{ background-color: {HUB_NAVY} !important; }}
 
-    /* TEXTOS DA BARRA LATERAL */
     [data-testid="stSidebar"] label p, 
     [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p,
     [data-testid="stSidebar"] .stFileUploaderFileName {{
@@ -100,34 +69,22 @@ st.markdown(f"""
         font-weight: 500 !important;
     }}
     
-    /* WIDGET DE UPLOAD */
-    div[data-testid="stFileUploadDropzone"] {{
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        border: 2px dashed {HUB_BLUE} !important;
-        border-radius: 10px !important;
-    }}
-
-    /* SELETOR DE IDIOMAS E BOTÃO DE DOWNLOAD (ESTILO EXPLORE TOOLS) */
+    /* ESTILIZAÇÃO UNIFICADA: SELECTBOX, DOWNLOAD E BROWSE FILES */
     div[data-testid="stSelectbox"] div[data-baseweb="select"],
-    div.stDownloadButton > button {{
+    div.stDownloadButton > button,
+    div[data-testid="stFileUploadDropzone"] button {{
         background: linear-gradient(90deg, #1a73e8 0%, #00d4ff 100%) !important;
         border-radius: 50px !important;
         border: none !important;
         color: {WHITE} !important;
-        padding: 8px 25px !important;
+        padding: 8px 20px !important;
         box-shadow: 0 4px 15px rgba(26, 115, 232, 0.3) !important;
         font-weight: bold !important;
-        transition: 0.3s ease-all !important;
-    }}
-    
-    div.stDownloadButton > button:hover {{
-        transform: scale(1.02) !important;
-        box-shadow: 0 6px 20px rgba(26, 115, 232, 0.5) !important;
+        text-transform: uppercase;
+        font-size: 0.8em;
     }}
 
-    div[data-testid="stSelectbox"] svg {{ fill: {WHITE} !important; }}
-
-    /* TÍTULOS E CARTÕES */
+    /* CARTÕES E TEXTOS */
     h1, h2, h3, h4 {{ color: {HUB_NAVY} !important; font-weight: 800 !important; }}
     .report-card {{
         background-color: {WHITE} !important;
@@ -135,7 +92,6 @@ st.markdown(f"""
         padding: 25px !important;
         border-radius: 12px !important;
         box-shadow: 0 10px 30px rgba(0,0,0,0.08) !important;
-        color: {HUB_NAVY} !important;
         margin-bottom: 25px !important;
     }}
     .data-line {{
@@ -143,67 +99,46 @@ st.markdown(f"""
         justify-content: space-between;
         border-bottom: 1px solid #f2f2f2;
         padding: 10px 0;
-        font-size: 0.95em;
+        color: {HUB_NAVY} !important;
     }}
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================================
-# 4. MOTOR TÉCNICO (INTEGRIDADE MANTIDA)
+# 4. MOTOR TÉCNICO
 # ==========================================================
-
 def butter_bandpass_filter(data, fs=2000):
     nyq = 0.5 * fs
     b, a = butter(4, [6/nyq, 500/nyq], btype='band')
-    if len(data) <= (max(len(a), len(b)) * 3): return data
-    return filtfilt(b, a, data)
+    return filtfilt(b, a, data) if len(data) > 12 else data
 
 def calculate_rms(data, fs=2000):
     rectified = np.abs(data - np.mean(data))
-    window = int(fs * 0.01) # 10ms
+    window = int(fs * 0.01)
     return np.sqrt(np.convolve(rectified**2, np.ones(window)/window, mode='same'))
 
 def parse_sylk(file):
     try:
         content = file.getvalue().decode("utf-8", errors="ignore")
         data_map = {}
-        ch_names = {4: "Canal 1", 5: "Canal 2"} # Nomes padrão caso falhe
+        ch_names = {4: "Canal 1", 5: "Canal 2"}
         for line in content.splitlines():
             if line.startswith('C;'):
                 p = line.split(';')
-                try:
-                    r, c = int(p[1][1:]), int(p[2][1:])
-                    val_raw = p[3]
-                    # Captura valor numérico ou string entre aspas
-                    if val_raw.startswith('K'):
-                        val = float(val_raw[1:].replace('"',''))
-                    else:
-                        val = val_raw.replace('"','')
-                        try: val = float(val)
-                        except: pass
-                    
-                    if r not in data_map: data_map[r] = {}
-                    data_map[r][c] = val
-                    
-                    # Nomes reais dos canais costumam estar na linha 4 das colunas 4 e 5
-                    if r == 4 and c in [4, 5]:
-                        ch_names[c] = str(val)
-                except: continue
-        
+                r, c = int(p[1][1:]), int(p[2][1:])
+                val_raw = p[3]
+                val = float(val_raw[1:].replace('"','')) if val_raw.startswith('K') else val_raw.replace('"','')
+                if r not in data_map: data_map[r] = {}
+                data_map[r][c] = val
+                if r == 4 and c in [4, 5]: ch_names[c] = str(val)
         df_raw = pd.DataFrame.from_dict(data_map, orient='index').sort_index()
-        df = pd.DataFrame({
-            'time': df_raw[1].values, 
-            'CH1': df_raw[4].values, 
-            'CH2': df_raw[5].values
-        }).dropna().iloc[5:]
+        df = pd.DataFrame({'time': df_raw[1].values, 'CH1': df_raw[4].values, 'CH2': df_raw[5].values}).dropna().iloc[5:]
         return df, [ch_names[4], ch_names[5]]
-    except Exception as e:
-        return None, None
+    except: return None, None
 
 # ==========================================================
 # 5. UI PRINCIPAL
 # ==========================================================
-
 h_col1, h_col2 = st.columns([3, 1])
 with h_col2:
     sel_lang = st.selectbox("Lang", list(LANGS.keys()), label_visibility="collapsed")
@@ -216,26 +151,21 @@ uploaded_file = st.sidebar.file_uploader(tr["upload_label"], type=["slk", "csv"]
 if uploaded_file:
     df_emg, labels = parse_sylk(uploaded_file)
     if df_emg is not None:
-        fs = 2000
         onsets_results = {}
-        all_metrics = [] # Para o download CSV
+        all_metrics = []
         ui_cols = st.columns(2)
 
         for i, (ch_col, name) in enumerate(zip(['CH1', 'CH2'], labels)):
             with ui_cols[i]:
-                st.subheader(f"📊 {name}") # Mostra o nome real
+                st.subheader(f"📊 {name}")
                 filt = butter_bandpass_filter(df_emg[ch_col].values)
                 rms_signal = calculate_rms(filt)
                 
-                fig = go.Figure(go.Scatter(
-                    x=df_emg['time'], y=rms_signal, 
-                    line=dict(color=WHITE, width=1.3)
-                ))
+                fig = go.Figure(go.Scatter(x=df_emg['time'], y=rms_signal, line=dict(color=WHITE, width=1.3)))
                 fig.update_layout(
                     height=400, margin=dict(l=10, r=10, t=10, b=10),
                     dragmode='select', selectdirection='h',
                     plot_bgcolor=HUB_NAVY, paper_bgcolor=HUB_NAVY,
-                    newshape=dict(line=dict(color=HUB_BLUE, width=2), fillcolor=HUB_BLUE, opacity=0.3),
                     xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', tickfont=dict(color=WHITE)),
                     yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', tickfont=dict(color=WHITE))
                 )
@@ -252,45 +182,36 @@ if uploaded_file:
                         thr = np.mean(baseline) + (3 * np.std(baseline))
                         idx = next((j for j in range(len(st_rms)-40) if np.all(st_rms[j:j+40] >= thr)), None)
                         
-                        v_max, v_mean, v_area = np.max(st_rms), np.mean(st_rms), simpson(st_rms, dx=1/fs)
-                        duration = t2 - t1
-                        onset_val = st_time[idx] if idx else None
-
-                        # Armazena métricas para o CSV
-                        all_metrics.append({
-                            "Canal": name, "Início Janela": t1, "Fim Janela": t2,
-                            "Duração": duration, "Onset": onset_val, "Pico": v_max,
-                            "RMS Médio": v_mean, "Área": v_area
-                        })
+                        v_max, v_mean, v_area = np.max(st_rms), np.mean(st_rms), simpson(st_rms, dx=1/2000)
+                        ons_val = st_time[idx] if idx else None
 
                         st.markdown(f"""
                         <div class="report-card">
                             <h4 style="margin:0 0 15px 0; color:{HUB_BLUE};">{tr['rep']}</h4>
                             <div class="data-line"><span>{tr['interval']}</span><b>{t1:.3f}s - {t2:.3f}s</b></div>
-                            <div class="data-line"><span>{tr['duration']}</span><b>{duration:.3f} s</b></div>
-                            <div class="data-line"><span>{tr['ons']}</span><b>{onset_val if onset_val else "N/D"} s</b></div>
+                            <div class="data-line"><span>{tr['duration']}</span><b>{t2-t1:.3f} s</b></div>
+                            <div class="data-line"><span>{tr['ons']}</span><b>{ons_val if ons_val else "N/D"} s</b></div>
                             <div class="data-line"><span>{tr['peak']}</span><b>{v_max:.2f} µV</b></div>
                             <div class="data-line"><span>{tr['mean_rms']}</span><b>{v_mean:.2f} µV</b></div>
                             <div class="data-line"><span>{tr['area']}</span><b>{v_area:.4f} µV.s</b></div>
                         </div>
                         """, unsafe_allow_html=True)
-                        if onset_val: onsets_results[i] = onset_val
+                        
+                        if ons_val: onsets_results[i] = ons_val
+                        all_metrics.append({"Canal": name, "Onset": ons_val, "Pico": v_max})
                 else:
                     st.info(tr["info"])
 
-        # COMPARATIVO E DOWNLOAD FINAL
-        st.divider()
-        c1, c2 = st.columns([2, 1])
-        
-        with c1:
-            if len(onsets_results) == 2:
-                diff = abs(onsets_results[0] - onsets_results[1]) * 1000
-                st.success(f"### ⏱️ {tr['sync']}: **{diff:.2f} ms**")
-        
-        with c2:
-            if all_metrics:
-                csv_data = pd.DataFrame(all_metrics).to_csv(index=False).encode('utf-8')
-                st.download_button(tr["dl_btn"], data=csv_data, file_name="relatorio_emg.csv", mime="text/csv")
-
+        # COMPARATIVO E DOWNLOAD (FINAL DA PÁGINA)
+        if len(all_metrics) > 0:
+            st.divider()
+            c_bot1, c_bot2 = st.columns([2, 1])
+            with c_bot1:
+                if len(onsets_results) == 2:
+                    diff = abs(onsets_results[0] - onsets_results[1]) * 1000
+                    st.success(f"### ⏱️ {tr['sync']}: **{diff:.2f} ms**")
+            with c_bot2:
+                csv = pd.DataFrame(all_metrics).to_csv(index=False).encode('utf-8')
+                st.download_button(tr["dl_btn"], data=csv, file_name="EMG_Report.csv", mime="text/csv")
 else:
     st.info(tr["wait"])
