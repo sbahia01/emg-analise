@@ -55,11 +55,12 @@ def process_emg_segment(segment_signal, fs=2000):
     b, a = butter(4, [6/nyq, 500/nyq], btype='bandpass')
     filt = filtfilt(b, a, segment_signal)
     rect = np.abs(filt - np.mean(filt))
-    window = int(fs * 0.01)
+    window = int(fs * 0.01) # 10ms
     rms = np.sqrt(np.convolve(rect**2, np.ones(window)/window, mode='same'))
     return rms
 
 def detect_onset(rms_signal, fs=2000):
+    # Baseline baseada nos primeiros 400 pontos do SEGMENTO selecionado
     if len(rms_signal) < 400: return None, 0
     base_mean = np.mean(rms_signal[:400])
     base_std = np.std(rms_signal[:400])
@@ -73,7 +74,8 @@ def detect_onset(rms_signal, fs=2000):
 # 3. INTERFACE E LÓGICA DE SELEÇÃO
 # ==========================================================
 st.title("Análise de EMG - Protocolo UFMG")
-st.info("🖱️ Instrução: Clique e arraste o mouse lateralmente no gráfico para selecionar o trecho da contração.")
+st.write("---")
+st.info("🖱️ **INSTRUÇÃO:** Use o rato para selecionar (clique e arraste horizontalmente) a área de interesse em CADA gráfico.")
 
 uploaded_file = st.sidebar.file_uploader("Upload do Arquivo (.slk ou .csv)", type=["slk", "csv"])
 
@@ -94,9 +96,10 @@ if uploaded_file:
         with col_ui:
             st.subheader(label)
             
+            # Gerar sinal completo apenas para visualização de fundo
             full_rms_view = process_emg_segment(df_total[ch_key].values, fs)
             
-            fig = go.Figure(go.Scatter(x=df_total['time'], y=full_rms_view, line=dict(color='black', width=1)))
+            fig = go.Figure(go.Scatter(x=df_total['time'], y=full_rms_view, line=dict(color='black', width=1), hoverinfo='skip'))
             fig.update_layout(
                 height=350, 
                 margin=dict(l=10, r=10, t=10, b=10),
@@ -104,52 +107,59 @@ if uploaded_file:
                 plot_bgcolor='white',
                 dragmode='select', 
                 selectdirection='h',
-                xaxis=dict(showgrid=True, gridcolor='#eee'),
-                yaxis=dict(showgrid=True, gridcolor='#eee')
+                xaxis=dict(showgrid=True, gridcolor='#eee', title="Tempo (s)"),
+                yaxis=dict(showgrid=True, gridcolor='#eee', title="Amplitude")
             )
             
-            # Aqui estava o erro de sintaxe corrigido:
+            # Captura a seleção
             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"graph_{i}")
             
+            # SÓ REALIZA A ANÁLISE SE HOUVER SELEÇÃO ATIVA
             if event and "selection" in event and len(event["selection"]["points"]) > 0:
                 t_selected = [p["x"] for p in event["selection"]["points"]]
                 t_start, t_end = min(t_selected), max(t_selected)
+                
+                # Recorte preciso para análise
                 df_selection = df_total[(df_total['time'] >= t_start) & (df_total['time'] <= t_end)].reset_index(drop=True)
+                
+                raw_segment = df_selection[ch_key].values
+                time_segment = df_selection['time'].values
+                
+                if len(raw_segment) > 400:
+                    rms_analyzed = process_emg_segment(raw_segment, fs)
+                    idx_onset, threshold = detect_onset(rms_analyzed, fs)
+                    
+                    val_peak = np.max(rms_analyzed)
+                    time_peak = time_segment[np.argmax(rms_analyzed)]
+                    val_mean = np.mean(rms_analyzed)
+                    val_area = simpson(rms_analyzed, dx=1/fs)
+                    
+                    st.success(f"Análise realizada: {t_start:.2f}s a {t_end:.2f}s")
+                    
+                    st.markdown(f"""
+                    <div class="report-box">
+                        <strong>RELATÓRIO TÉCNICO {label.upper()}:</strong><br>
+                        • ONSET: {time_segment[idx_onset] if idx_onset is not None else "N/D"} s<br>
+                        • PICO MÁXIMO: {val_peak:.2f} µV<br>
+                        • TEMPO DO PICO: {time_peak:.4f} s<br>
+                        • RMS MÉDIO: {val_mean:.2f} µV<br>
+                        • ÁREA (INTEGRAL): {val_area:.4f} µV.s<br>
+                        • THRESHOLD: {threshold:.4f} µV
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if idx_onset is not None:
+                        onsets_results[i] = time_segment[idx_onset]
+                else:
+                    st.warning("Seleção muito curta para análise (mínimo 200ms).")
             else:
-                df_selection = df_total
+                st.write("⬆️ *Arraste o mouse no gráfico acima para analisar este músculo.*")
 
-            raw_segment = df_selection[ch_key].values
-            time_segment = df_selection['time'].values
-            
-            if len(raw_segment) > 0:
-                rms_analyzed = process_emg_segment(raw_segment, fs)
-                idx_onset, threshold = detect_onset(rms_analyzed, fs)
-                
-                # Cálculos completos
-                val_peak = np.max(rms_analyzed)
-                time_peak = time_segment[np.argmax(rms_analyzed)]
-                val_mean = np.mean(rms_analyzed)
-                val_area = simpson(rms_analyzed, dx=1/fs)
-                
-                st.markdown(f"""
-                <div class="report-box">
-                    <strong>RELATÓRIO TÉCNICO {label.upper()}:</strong><br>
-                    • ONSET: {time_segment[idx_onset] if idx_onset is not None else "N/D"} s<br>
-                    • PICO MÁXIMO: {val_peak:.2f} µV<br>
-                    • TEMPO DO PICO: {time_peak:.4f} s<br>
-                    • RMS MÉDIO: {val_mean:.2f} µV<br>
-                    • ÁREA (INTEGRAL): {val_area:.4f} µV.s<br>
-                    • THRESHOLD: {threshold:.4f} µV
-                </div>
-                """, unsafe_allow_html=True)
-                
-                if idx_onset is not None:
-                    onsets_results[i] = time_segment[idx_onset]
-
+    # SINCRONISMO (DELAY)
     if len(onsets_results) == 2:
         st.write("---")
         delay_ms = abs(onsets_results[0] - onsets_results[1]) * 1000
         st.write(f"### Diferença de Sincronismo (Delay): **{delay_ms:.2f} ms**")
 
 else:
-    st.info("Aguardando upload do arquivo...")
+    st.info("Aguardando upload do arquivo para iniciar.")
