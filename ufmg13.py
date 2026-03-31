@@ -186,4 +186,20 @@ if uploaded_file:
                         v_area = simpson(st_rms, dx=1/fs)
                         
                         st.markdown(f"""
-                        <div
+                        <div class="report-card">
+                            <h4 style="margin-top:0;">{tr['rep']}</h4>
+                            • <b>{tr['ons']}:</b> {st_time[idx] if idx else "N/D"} s<br>
+                            • <b>{tr['peak']}:</b> {v_max:.2f} µV<br>
+                            • <b>{tr['area']}:</b> {v_area:.4f} µV.s<br>
+                            <hr style="border: 0.5px solid #eee">
+                            <small>{tr['thresh']}: {thr:.4f} µV</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if idx: onsets_results[i] = st_time[idx]
+                else:
+                    st.info(tr["info"])
+
+        if len(onsets_results) == 2:
+            st.success(f"### ⏱️ {tr['sync']}: **{abs(onsets_results[0] - onsets_results[1]) * 1000:.2f} ms**")
+else:
+    st.info(tr["wait"])
