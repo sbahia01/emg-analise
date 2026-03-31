@@ -15,20 +15,18 @@ st.markdown("""
     .stApp { background-color: white !important; color: black !important; }
     h1, h2, h3, p, span, label, .stMarkdown { color: black !important; font-family: sans-serif; }
     .report-box { 
-        border: 1px solid #000; 
-        padding: 15px; 
-        font-family: monospace; 
+        border: 2px solid #000; 
+        padding: 20px; 
+        font-family: 'Courier New', Courier, monospace; 
         margin-top: 10px;
         background-color: #fff;
         color: #000;
-        line-height: 1.5;
     }
-    hr { border: 0.5px solid #000; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================================
-# 2. FUNÇÕES TÉCNICAS (CONSOLIDADO UFMG.PY)
+# 2. FUNÇÕES TÉCNICAS
 # ==========================================================
 
 def read_slk_file(file):
@@ -50,16 +48,16 @@ def read_slk_file(file):
     df.columns = ['time', 'CH1', 'CH2']
     return df, muscle_names
 
-def process_emg_segment(segment_signal, fs=2000):
-    if len(segment_signal) < 10: return segment_signal
+def process_emg_core(signal, fs=2000):
     nyq = 0.5 * fs
     b, a = butter(4, [6/nyq, 500/nyq], btype='bandpass')
-    filt = filtfilt(b, a, segment_signal)
+    filt = filtfilt(b, a, signal)
     rect = np.abs(filt - np.mean(filt))
-    window = int(fs * 0.01)
-    return np.sqrt(np.convolve(rect**2, np.ones(window)/window, mode='same'))
+    window = int(fs * 0.01) # 10ms
+    rms = np.sqrt(np.convolve(rect**2, np.ones(window)/window, mode='same'))
+    return rms
 
-def detect_onset(rms_signal, fs=2000):
+def detect_onset_core(rms_signal, fs=2000):
     if len(rms_signal) < 400: return None, 0
     base_mean = np.mean(rms_signal[:400])
     base_std = np.std(rms_signal[:400])
@@ -73,91 +71,90 @@ def detect_onset(rms_signal, fs=2000):
 # 3. INTERFACE E LÓGICA DE SELEÇÃO
 # ==========================================================
 st.title("Análise de EMG - Protocolo UFMG")
-st.info("🖱️ **Instrução:** Clique e arraste lateralmente no gráfico para selecionar o intervalo. A análise aparecerá abaixo automaticamente.")
+st.write("---")
 
-uploaded_file = st.sidebar.file_uploader("Upload (.slk ou .csv)", type=["slk", "csv"])
+uploaded_file = st.sidebar.file_uploader("Carregar arquivo (.slk ou .csv)", type=["slk", "csv"])
 
 if uploaded_file:
-    # Carregamento único dos dados
-    if 'data' not in st.session_state or st.session_state.get('filename') != uploaded_file.name:
+    # Garantir que os dados fiquem na memória
+    if 'raw_df' not in st.session_state or st.session_state.get('last_file') != uploaded_file.name:
         if uploaded_file.name.endswith('.slk'):
             df, names = read_slk_file(uploaded_file)
-            st.session_state.labels = [names.get(4, "Músculo 1"), names.get(5, "Músculo 2")]
+            st.session_state.m_labels = [names.get(4, "Canal 1"), names.get(5, "Canal 2")]
         else:
             df = pd.read_csv(uploaded_file)
             df.columns = ['time', 'CH1', 'CH2']
-            st.session_state.labels = ["Canal 1", "Canal 2"]
-        st.session_state.data = df
-        st.session_state.filename = uploaded_file.name
+            st.session_state.m_labels = ["Canal 1", "Canal 2"]
+        st.session_state.raw_df = df
+        st.session_state.last_file = uploaded_file.name
 
-    df_total = st.session_state.data
-    labels = st.session_state.labels
+    df_full = st.session_state.raw_df
+    m_labels = st.session_state.m_labels
     fs = 2000
-    onsets_found = {}
+    onsets_final = {}
     
-    cols_ui = st.columns(2)
+    col_a, col_b = st.columns(2)
 
-    for i, (ch_key, label) in enumerate(zip(['CH1', 'CH2'], labels)):
-        with cols_ui[i]:
+    for i, (ch, label, ui_col) in enumerate(zip(['CH1', 'CH2'], m_labels, [col_a, col_b])):
+        with ui_col:
             st.subheader(label)
             
-            # Visualização do sinal RMS completo
-            view_rms = process_emg_segment(df_total[ch_key].values, fs)
+            # Sinal completo para o gráfico
+            full_rms = process_emg_core(df_full[ch].values, fs)
             
-            fig = go.Figure(go.Scatter(x=df_total['time'], y=view_rms, line=dict(color='black', width=1)))
+            fig = go.Figure(go.Scatter(x=df_full['time'], y=full_rms, line=dict(color='black', width=1)))
             fig.update_layout(
-                height=300, margin=dict(l=10, r=10, t=10, b=10),
+                height=350, margin=dict(l=10, r=10, t=10, b=10),
                 paper_bgcolor='white', plot_bgcolor='white',
                 dragmode='select', selectdirection='h'
             )
             
-            # Captura a seleção
-            select_event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"g_{i}")
+            # Captura o evento de seleção (IMPORTANT: on_select="rerun")
+            event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{i}")
             
-            # LÓGICA DE ANÁLISE: Só executa se houver seleção
-            if select_event and "selection" in select_event and len(select_event["selection"]["points"]) > 0:
-                # Extrair tempos selecionados
-                t_selected = [p["x"] for p in select_event["selection"]["points"]]
-                t_start, t_end = min(t_selected), max(t_selected)
+            # Tenta obter o intervalo de tempo da seleção
+            t_start, t_end = None, None
+            if event and 'selection' in event:
+                if 'range' in event['selection'] and 'x' in event['selection']['range']:
+                    t_start, t_end = event['selection']['range']['x']
+            
+            # SE HOUVER SELEÇÃO, REALIZA A ANÁLISE
+            if t_start is not None and t_end is not None:
+                mask = (df_full['time'] >= t_start) & (df_full['time'] <= t_end)
+                df_seg = df_full.loc[mask].reset_index(drop=True)
                 
-                # Filtrar sub-dados para análise técnica
-                mask = (df_total['time'] >= t_start) & (df_total['time'] <= t_end)
-                df_sub = df_total.loc[mask].reset_index(drop=True)
-                
-                if len(df_sub) > 10:
-                    raw_sig = df_sub[ch_key].values
-                    t_sig = df_sub['time'].values
+                if not df_seg.empty:
+                    seg_rms = process_emg_core(df_seg[ch].values, fs)
+                    idx_on, thr = detect_onset_core(seg_rms, fs)
                     
-                    # Processamento REAL do trecho
-                    rms_analyzed = process_emg_segment(raw_sig, fs)
-                    idx_on, thr = detect_onset(rms_analyzed, fs)
-                    
-                    # Cálculos
-                    v_peak = np.max(rms_analyzed)
-                    t_peak = t_sig[np.argmax(rms_analyzed)]
-                    v_area = simpson(rms_analyzed, dx=1/fs)
+                    # Métricas
+                    v_peak = np.max(seg_rms)
+                    t_peak = df_seg['time'].iloc[np.argmax(seg_rms)]
+                    v_area = simpson(seg_rms, dx=1/fs)
                     
                     st.markdown(f"""
                     <div class="report-box">
-                        <strong>ANÁLISE {label.upper()}:</strong><br>
-                        • ONSET: {t_sig[idx_on] if idx_on is not None else "N/D"} s<br>
+                        <strong>RELATÓRIO: {label.upper()}</strong><br>
+                        Intervalo: {t_start:.2f}s - {t_end:.2f}s<br><br>
+                        • ONSET: {df_seg['time'].iloc[idx_on] if idx_on is not None else "N/D"} s<br>
                         • PICO: {v_peak:.2f} µV<br>
                         • TEMPO DO PICO: {t_peak:.4f} s<br>
-                        • RMS MÉDIO: {np.mean(rms_analyzed):.2f} µV<br>
+                        • RMS MÉDIO: {np.mean(seg_rms):.2f} µV<br>
                         • ÁREA: {v_area:.4f} µV.s<br>
                         • THRESHOLD: {thr:.4f} µV
                     </div>
                     """, unsafe_allow_html=True)
                     
                     if idx_on is not None:
-                        onsets_found[i] = t_sig[idx_on]
+                        onsets_final[i] = df_seg['time'].iloc[idx_on]
             else:
-                st.write(" *Selecione uma área no gráfico acima para ver a análise.*")
+                st.info("👆 Selecione um intervalo no gráfico acima para analisar.")
 
-    # Delay entre seleções
-    if len(onsets_found) == 2:
+    # Sincronismo
+    if len(onsets_final) == 2:
         st.write("---")
-        diff = abs(onsets_found[0] - onsets_found[1]) * 1000
-        st.write(f"### Diferença de Sincronismo: **{diff:.2f} ms**")
+        delay = abs(onsets_final[0] - onsets_final[1]) * 1000
+        st.subheader(f"Diferença de Sincronismo: {delay:.2f} ms")
+
 else:
-    st.info("Aguardando upload do arquivo.")
+    st.info("Aguardando ficheiro para começar.")
