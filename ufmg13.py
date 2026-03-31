@@ -4,12 +4,11 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.signal import butter, filtfilt
 from scipy.integrate import simpson
-import io
 
 # ==========================================================
-# 1. ESTILO MINIMALISTA (BRANCO E PRETO)
+# CONFIGURAÇÃO VISUAL (MINIMALISTA - BRANCO E PRETO)
 # ==========================================================
-st.set_page_config(page_title="EMG Analysis UFMG", layout="wide")
+st.set_page_config(page_title="EMG UFMG Analysis", layout="wide")
 
 st.markdown("""
     <style>
@@ -28,7 +27,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================================
-# 2. FUNÇÕES TÉCNICAS (DO ARQUIVO UFMG.PY ORIGINAL)
+# FUNÇÕES TÉCNICAS (CONSOLIDADO UFMG.PY)
 # ==========================================================
 
 def read_slk_file(file):
@@ -43,117 +42,110 @@ def read_slk_file(file):
                 val = parts[3][1:].strip('"') if parts[3].startswith('K') else parts[3]
                 if row not in data: data[row] = {}
                 data[row][col] = val
-                # Identificação de nomes na linha 4
-                if row == 4 and col in [4, 5]:
-                    muscle_names[col] = val
+                if row == 4 and col in [4, 5]: muscle_names[col] = val
             except: continue
     df = pd.DataFrame(data).T.sort_index()
     df = df.iloc[4:, [0, 3, 4]].reset_index(drop=True).astype(float)
     df.columns = ['time', 'CH1', 'CH2']
     return df, muscle_names
 
-def process_signal(raw_signal, fs=2000):
-    # Filtro Butterworth 4ª ordem (6-500Hz)
+def process_emg(signal, fs=2000):
     b, a = butter(4, [6/(fs/2), 500/(fs/2)], btype='bandpass')
-    filtered = filtfilt(b, a, raw_signal)
-    # Retificação e RMS de 10ms
-    rectified = np.abs(filtered - np.mean(filtered))
-    window = int(fs * 0.01)
-    rms = np.sqrt(np.convolve(rectified**2, np.ones(window)/window, mode='same'))
-    return rms
+    filt = filtfilt(b, a, signal)
+    rect = np.abs(filt - np.mean(filt))
+    window = int(fs * 0.01) # 10ms
+    return np.sqrt(np.convolve(rect**2, np.ones(window)/window, mode='same'))
 
-def detect_onset(signal, fs=2000):
+def detect_onset(signal, time_array, fs=2000):
+    if len(signal) < 400: return None, 0
     base_mean = np.mean(signal[:400])
     base_std = np.std(signal[:400])
     thresh = base_mean + (3 * base_std)
-    for i in range(len(signal) - 40): # 20ms sustentado
+    for i in range(len(signal) - 40):
         if np.all(signal[i : i + 40] >= thresh):
             return i, thresh
     return None, thresh
 
 # ==========================================================
-# 3. INTERFACE E ANÁLISE INDIVIDUALIZADA
+# INTERFACE DO USUÁRIO
 # ==========================================================
+st.title("Análise EMG - Seleção Manual por Gráfico")
+st.info("Instrução: Use o rato para selecionar (clicar e arrastar) a área de interesse diretamente no gráfico.")
 
-st.title("Sistema de Análise EMG - Protocolo UFMG")
-st.write("---")
-
-uploaded_file = st.sidebar.file_uploader("Upload de arquivo (.slk ou .csv)", type=["slk", "csv"])
+uploaded_file = st.sidebar.file_uploader("Arquivo (.slk ou .csv)", type=["slk", "csv"])
 
 if uploaded_file:
-    # Carregamento
     if uploaded_file.name.endswith('.slk'):
         df, names = read_slk_file(uploaded_file)
-        m_labels = [names.get(4, "Canal 1"), names.get(5, "Canal 2")]
+        m_labels = [names.get(4, "Músculo 1"), names.get(5, "Músculo 2")]
     else:
         df = pd.read_csv(uploaded_file)
         df.columns = ['time', 'CH1', 'CH2']
-        m_labels = ["Músculo 1", "Músculo 2"]
+        m_labels = ["Canal 1", "Canal 2"]
 
     fs = 2000
-    time_full = df['time'].values
-    onsets_found = {}
+    onsets_log = {}
+    cols = st.columns(2)
 
-    col1, col2 = st.columns(2)
-
-    # LOOP PARA CADA MÚSCULO COM SUA PRÓPRIA SELEÇÃO
-    for i, (col_name, label, display_col) in enumerate(zip(['CH1', 'CH2'], m_labels, [col1, col2])):
-        with display_col:
+    for i, (ch, label, col_ui) in enumerate(zip(['CH1', 'CH2'], m_labels, cols)):
+        with col_ui:
             st.subheader(label)
             
-            # Seleção de Intervalo Individual
-            t_start, t_end = st.slider(
-                f"Intervalo de Análise - {label}",
-                float(time_full.min()), float(time_full.max()), 
-                (float(time_full.min()), float(time_full.max())), key=f"slide_{i}"
+            # --- GRÁFICO INTERATIVO PARA SELEÇÃO ---
+            # Processamos o sinal inteiro para exibição inicial
+            full_rms = process_emg(df[ch].values, fs)
+            
+            fig = go.Figure(go.Scatter(x=df['time'], y=full_rms, line=dict(color='black', width=1)))
+            fig.update_layout(
+                height=350, 
+                margin=dict(l=0,r=0,t=10,b=0), 
+                paper_bgcolor='white', 
+                plot_bgcolor='white',
+                dragmode='select', # Habilita a seleção por caixa por padrão
+                selectdirection='h' # Seleção apenas horizontal (tempo)
             )
+            
+            # Captura a seleção feita pelo usuário no gráfico
+            selected_data = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
+            
+            # --- LÓGICA DE RECORTE E ANÁLISE ---
+            # Se o usuário selecionou uma área, filtramos. Se não, usamos o sinal todo.
+            if selected_data and "selection" in selected_data and len(selected_data["selection"]["points"]) > 0:
+                # Pegamos o tempo mínimo e máximo da seleção
+                x_values = [p["x"] for p in selected_data["selection"]["points"]]
+                t_min, t_max = min(x_values), max(x_values)
+                
+                df_sub = df[(df['time'] >= t_min) & (df['time'] <= t_max)].reset_index(drop=True)
+                st.caption(f"Intervalo selecionado: {t_min:.3f}s a {t_max:.3f}s")
+            else:
+                df_sub = df
+                st.caption("Exibindo sinal total. Selecione uma área no gráfico para analisar.")
 
-            # Recorte e Processamento
-            mask = (df['time'] >= t_start) & (df['time'] <= t_end)
-            df_sub = df.loc[mask].reset_index(drop=True)
             t_sub = df_sub['time'].values
+            rms_sub = process_emg(df_sub[ch].values, fs)
+            idx, thr = detect_onset(rms_sub, t_sub, fs)
             
-            rms_data = process_signal(df_sub[col_name].values, fs)
-            idx, thr = detect_onset(rms_data, fs)
+            # Cálculos
+            peak = np.max(rms_sub)
+            area = simpson(rms_sub, dx=1/fs)
             
-            # Gráfico
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=t_sub, y=rms_data, name="RMS", line=dict(color='black', width=1)))
-            if idx is not None:
-                onsets_found[i] = t_sub[idx]
-                fig.add_vline(x=t_sub[idx], line_dash="dash", line_color="red")
-            
-            fig.update_layout(height=300, margin=dict(l=0,r=0,t=10,b=0), paper_bgcolor='white', plot_bgcolor='white')
-            st.plotly_chart(fig, use_container_width=True)
-
-            # --- ANÁLISE COMPLETA (DADOS DO ARQUIVO ORIGINAL) ---
-            peak_val = np.max(rms_data)
-            peak_time = t_sub[np.argmax(rms_data)]
-            mean_rms = np.mean(rms_data)
-            area = simpson(rms_data, dx=1/fs)
-
             st.markdown(f"""
             <div class="report-box">
-                <strong>DADOS DE ANÁLISE:</strong><br>
-                • ONSET: {t_sub[idx] if idx is not None else "N/D"} s<br>
-                • PICO MÁXIMO: {peak_val:.2f} µV<br>
-                • TEMPO DO PICO: {peak_time:.4f} s<br>
-                • RMS MÉDIO: {mean_rms:.2f} µV<br>
-                • ÁREA (INTEGRAL): {area:.4f} µV.s<br>
-                • THRESHOLD BASE: {thr:.4f} µV
+                <strong>RESULTADOS {label.upper()}:</strong><br>
+                Onset: {t_sub[idx] if idx is not None else "N/D"} s<br>
+                Pico Máx: {peak:.2f} µV<br>
+                RMS Médio: {np.mean(rms_sub):.2f} µV<br>
+                Área: {area:.4f} µV.s<br>
+                Threshold: {thr:.4f} µV
             </div>
             """, unsafe_allow_html=True)
+            
+            if idx is not None: onsets_log[i] = t_sub[idx]
 
-    # 4. COMPARATIVO DE SINCRONISMO (DELAY)
-    if len(onsets_found) == 2:
+    # SINCRONISMO
+    if len(onsets_log) == 2:
         st.write("---")
-        st.subheader("Comparativo de Sincronismo")
-        delay = abs(onsets_found[0] - onsets_found[1]) * 1000
-        primeiro = m_labels[0] if onsets_found[0] < onsets_found[1] else m_labels[1]
-        
-        st.write(f"Primeiro músculo ativado: **{primeiro}**")
-        st.write(f"Diferença de ativação (Delay): **{delay:.2f} ms**")
-        st.write("---")
-
+        delay = abs(onsets_log[0] - onsets_log[1]) * 1000
+        st.write(f"### Diferença de Sincronismo (Delay): **{delay:.2f} ms**")
 else:
-    st.info("Aguardando upload de arquivo para processamento.")
+    st.info("Aguardando upload de dados...")
