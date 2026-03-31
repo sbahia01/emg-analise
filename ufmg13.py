@@ -6,24 +6,24 @@ from scipy.signal import butter, filtfilt
 from scipy.integrate import simpson
 
 # ==========================================================
-# 1. IDENTIDADE VISUAL HUB ACADEMICA (CORES REAIS)
+# 1. IDENTIDADE VISUAL HUB ACADEMICA (PALETA REFINADA)
 # ==========================================================
-HUB_NAVY = "#001a33"   # Azul Marinho Profundo
-HUB_BLUE = "#1a73e8"   # Azul Vibrante para Destaques
-HUB_BG = "#f0f2f6"     # Cinza de fundo (Contraste)
+HUB_NAVY = "#001a33"   # Azul Marinho Profundo (Barra lateral e Títulos)
+HUB_BLUE = "#1a73e8"   # Azul Vibrante (Botões e Destaques)
+HUB_BG = "#fdfdfd"     # Azul Gelo Muito Claro (Novo Fundo da Página)
 WHITE = "#ffffff"
 
 st.set_page_config(page_title="EMGExpert | Hub Academica", layout="wide")
 
 # ==========================================================
-# 2. DICIONÁRIO DE TRADUÇÕES COMPLETO (RESTAURADO + AMPLIADO)
+# 2. DICIONÁRIO DE TRADUÇÕES COMPLETO (ZERO CORTES)
 # ==========================================================
 LANGS = {
     "PORTUGUÊS (BRASILEIRO)": {
         "title": "EMGExpert — Ciência Encontra a Prática",
-        "upload": "Carregar arquivo (.slk ou .csv)",
+        "upload_label": "Selecione o arquivo (.slk ou .csv)",
         "info": "🖱️ Arraste no gráfico para analisar a contração.",
-        "rep": "RELATÓRIO TÉCNICO",
+        "rep": "RELATÓRIO TÉCNICO DETALHADO",
         "interval": "⏱️ JANELA DE TEMPO",
         "duration": "⏳ DURAÇÃO DA SELEÇÃO",
         "ons": "🟢 ONSET (INÍCIO)",
@@ -32,12 +32,12 @@ LANGS = {
         "area": "📊 ÁREA (INTEGRAL)",
         "sync": "Diferença de Sincronismo (Delay)",
         "wait": "Aguardando upload do arquivo...",
-        "thresh": "Threshold de detecção"
+        "thresh": "Threshold de detecção aplicado"
     },
     "ENGLISH": {
         "title": "EMGExpert — Science Meets Practice",
-        "upload": "Upload file (.slk or .csv)",
-        "info": "🖱️ Drag on the chart to analyze contraction.",
+        "upload_label": "Choose file (.slk or .csv)",
+        "info": "🖱️ Drag on the chart to analyze.",
         "rep": "TECHNICAL REPORT",
         "interval": "⏱️ TIME WINDOW",
         "duration": "⏳ SELECTION DURATION",
@@ -45,91 +45,114 @@ LANGS = {
         "peak": "📈 PEAK AMPLITUDE",
         "mean_rms": "🌊 MEAN RMS",
         "area": "📊 AREA (INTEGRAL)",
-        "sync": "Synchronization Delay",
-        "wait": "Waiting for file upload...",
-        "thresh": "Detection Threshold"
+        "sync": "Delay",
+        "wait": "Waiting...",
+        "thresh": "Threshold"
     },
     "ESPAÑOL": {
-        "title": "EMGExpert — La Ciencia se Encuentra con la Práctica",
-        "upload": "Cargar archivo (.slk o .csv)",
-        "info": "🖱️ Arrastre en el gráfico para analizar.",
+        "title": "EMGExpert — Ciencia y Práctica",
+        "upload_label": "Cargar archivo (.slk o .csv)",
+        "info": "🖱️ Arrastre para analizar.",
         "rep": "INFORME TÉCNICO",
-        "interval": "⏱️ VENTANA DE TIEMPO",
-        "duration": "⏳ DURACIÓN",
         "ons": "🟢 COMIENZO (ONSET)",
         "peak": "📈 PICO MÁXIMO",
         "mean_rms": "🌊 RMS MEDIO",
         "area": "📊 ÁREA (INTEGRAL)",
-        "sync": "Diferencia de Sincronismo",
-        "wait": "Esperando carga de archivo...",
-        "thresh": "Umbral de detección"
+        "sync": "Delay",
+        "wait": "Esperando...",
+        "thresh": "Umbral"
     },
     "CHINESE (SIMPLIFIED)": {
-        "title": "EMGExpert — 科学与实践的结合",
-        "upload": "上传文件 (.slk 或 .csv)",
-        "info": "🖱️ 在图表上拖动以进行分析。",
+        "title": "EMGExpert — 科学与实践",
+        "upload_label": "上传文件 (.slk 或 .csv)",
+        "info": "🖱️ 拖动进行分析",
         "rep": "技术报告",
-        "interval": "⏱️ 时间窗口",
-        "duration": "⏳ 持续时间",
-        "ons": "🟢 起始点 (Onset)",
-        "peak": "📈 最大峰值",
-        "mean_rms": "🌊 平均均方根 (RMS)",
-        "area": "📊 面积 (积分)",
+        "ons": "起始点",
+        "peak": "最大峰值",
+        "area": "面积",
         "sync": "同步延迟",
-        "wait": "等待文件上传...",
-        "thresh": "检测阈值"
+        "wait": "等待中...",
+        "thresh": "阈值"
     }
 }
 
 # ==========================================================
-# 3. ESTILIZAÇÃO CSS (INTEGRIDADE VISUAL)
+# 3. CSS AVANÇADO (SOLUÇÃO DE VISIBILIDADE E CORES)
 # ==========================================================
 st.markdown(f"""
     <style>
-    .stApp {{ background-color: {HUB_BG} !important; }}
+    /* Fundo Principal Refinado */
+    .stApp {{
+        background-color: {HUB_BG} !important;
+    }}
     
+    /* BARRA LATERAL - RESOLVENDO BRANCO SOBRE BRANCO */
     [data-testid="stSidebar"] {{
         background-color: {HUB_NAVY} !important;
+    }}
+    /* Força o texto de 'Selecione o arquivo' a ser visível */
+    [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p {{
         color: {WHITE} !important;
     }}
-    [data-testid="stSidebar"] * {{ color: {WHITE} !important; }}
     
-    section[data-testid="stFileUploadDropzone"] {{
+    /* BOTÃO DE UPLOAD - DESTAQUE MÁXIMO (Borda e Fundo) */
+    div[data-testid="stFileUploadDropzone"] {{
         background-color: {WHITE} !important;
-        border: 2px dashed {HUB_BLUE} !important;
-        border-radius: 10px !important;
+        border: 3px dashed {HUB_BLUE} !important;
+        border-radius: 12px !important;
+        padding: 25px !important;
+    }}
+    
+    /* Ícone de Upload em Azul */
+    div[data-testid="stFileUploadDropzone"] i {{
+        color: {HUB_BLUE} !important;
     }}
 
-    h1, h2, h3 {{ color: {HUB_NAVY} !important; font-weight: 800 !important; }}
+    /* Títulos Principais e Parágrafos */
+    h1, h2, h3, h4 {{ 
+        color: {HUB_NAVY} !important; 
+        font-family: 'Inter', sans-serif; 
+        font-weight: 700 !important; 
+    }}
+    .stMarkdown p {{ color: {HUB_NAVY} !important; }}
 
+    /* Cartões de Relatório - Brancos e Nítidos */
     .report-card {{
         background-color: {WHITE} !important;
-        border-top: 5px solid {HUB_BLUE} !important;
-        padding: 20px !important;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1) !important;
+        border-top: 6px solid {HUB_BLUE} !important;
+        padding: 25px !important;
+        border-radius: 10px !important;
         color: {HUB_NAVY} !important;
-        margin-bottom: 20px !important;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.08) !important;
+        margin-bottom: 30px !important;
+        line-height: 1.6 !important;
     }}
     
+    /* Linhas de Dados Estilo Tabela */
     .data-line {{
         display: flex;
         justify-content: space-between;
         border-bottom: 1px solid #eee;
-        padding: 8px 0;
+        padding: 10px 0;
         font-size: 0.95em;
+    }}
+    
+    /* Ajuste no seletor de linguagem */
+    .stSelectbox div[data-baseweb="select"] {{
+        background-color: {WHITE} !important;
+        border-radius: 5px;
     }}
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================================
-# 4. MOTOR TÉCNICO (ROBUSTEZ TOTAL)
+# 4. MOTOR TÉCNICO (INTEGRIDADE TOTAL)
 # ==========================================================
 
 def butter_bandpass_filter(data, fs=2000):
     nyq = 0.5 * fs
     b, a = butter(4, [6/nyq, 500/nyq], btype='band')
-    if len(data) <= 12: return data
+    if len(data) <= (max(len(a), len(b)) * 3): return data
     return filtfilt(b, a, data)
 
 def calculate_rms(data, fs=2000):
@@ -146,7 +169,8 @@ def parse_sylk(file):
             if line.startswith('C;'):
                 p = line.split(';')
                 try:
-                    r, c = int(p[1][1:]), int(p[2][1:])
+                    r = int(p[1][1:])
+                    c = int(p[2][1:])
                     val_raw = p[3]
                     val = float(val_raw[1:].replace('"','')) if val_raw.startswith('K') else float(val_raw.replace('"',''))
                     if r not in data_map: data_map[r] = {}
@@ -169,6 +193,7 @@ def parse_sylk(file):
 # 5. INTERFACE DO USUÁRIO
 # ==========================================================
 
+# Seletor de Idioma no Topo Direito
 header_col1, header_col2 = st.columns([4, 1])
 with header_col2:
     sel_lang = st.selectbox("🌐 Language", list(LANGS.keys()))
@@ -176,7 +201,8 @@ with header_col2:
 with header_col1:
     st.title(tr["title"])
 
-uploaded_file = st.sidebar.file_uploader(tr["upload"], type=["slk", "csv"])
+# Barra Lateral de Upload
+uploaded_file = st.sidebar.file_uploader(tr["upload_label"], type=["slk", "csv"])
 
 if uploaded_file:
     df_emg, labels = parse_sylk(uploaded_file)
@@ -191,11 +217,19 @@ if uploaded_file:
                 filt = butter_bandpass_filter(df_emg[ch_col].values)
                 rms_signal = calculate_rms(filt)
                 
-                fig = go.Figure(go.Scatter(x=df_emg['time'], y=rms_signal, line=dict(color=HUB_NAVY, width=1.3)))
+                # Gráfico com cores da Hub
+                fig = go.Figure(go.Scatter(
+                    x=df_emg['time'], y=rms_signal, 
+                    line=dict(color=HUB_NAVY, width=1.4),
+                    hoverinfo='skip'
+                ))
+                
                 fig.update_layout(
                     height=400, margin=dict(l=10, r=10, t=10, b=10),
                     dragmode='select', selectdirection='h',
                     plot_bgcolor=WHITE,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    # Cor da seleção (Azul Vibrante da Hub)
                     newshape=dict(line=dict(color=HUB_BLUE, width=2), fillcolor=HUB_BLUE, opacity=0.3),
                     xaxis=dict(showgrid=True, gridcolor='#f0f0f0'),
                     yaxis=dict(showgrid=True, gridcolor='#f0f0f0')
@@ -203,10 +237,14 @@ if uploaded_file:
                 
                 sel = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"p_{ch_col}_{sel_lang}")
 
+                # Análise da Seleção
                 if sel and "selection" in sel and "box" in sel["selection"] and len(sel["selection"]["box"]) > 0:
-                    t1, t2 = sel["selection"]["box"][0]["x"][0], sel["selection"]["box"][0]["x"][1]
+                    t1 = sel["selection"]["box"][0]["x"][0]
+                    t2 = sel["selection"]["box"][0]["x"][1]
+                    
                     mask = (df_emg['time'] >= t1) & (df_emg['time'] <= t2)
-                    st_time, st_rms = df_emg['time'][mask].values, rms_signal[mask]
+                    st_time = df_emg['time'][mask].values
+                    st_rms = rms_signal[mask]
                     
                     if len(st_rms) > 10:
                         # Cálculos Técnicos
@@ -219,7 +257,7 @@ if uploaded_file:
                         v_area = simpson(st_rms, dx=1/fs)
                         duration = t2 - t1
 
-                        # Relatório Integral sem cortes
+                        # Relatório Integral com todas as linhas
                         st.markdown(f"""
                         <div class="report-card">
                             <h4 style="margin:0 0 15px 0; color:{HUB_BLUE};">{tr['rep']}</h4>
@@ -229,7 +267,7 @@ if uploaded_file:
                             <div class="data-line"><span>{tr['peak']}</span><b>{v_max:.2f} µV</b></div>
                             <div class="data-line"><span>{tr['mean_rms']}</span><b>{v_mean:.2f} µV</b></div>
                             <div class="data-line"><span>{tr['area']}</span><b>{v_area:.4f} µV.s</b></div>
-                            <p style="font-size:0.8em; color:gray; margin-top:15px; border-top:1px dashed #ddd; padding-top:5px;">
+                            <p style="font-size:0.85em; color:gray; margin-top:18px; border-top:1px dashed #ddd; padding-top:8px;">
                                 {tr['thresh']}: {thr:.4f} µV
                             </p>
                         </div>
@@ -238,8 +276,11 @@ if uploaded_file:
                 else:
                     st.info(tr["info"])
 
+        # Delay Sincronismo
         if len(onsets_results) == 2:
             diff = abs(onsets_results[0] - onsets_results[1]) * 1000
             st.success(f"### ⏱️ {tr['sync']}: **{diff:.2f} ms**")
+    else:
+        st.error("Erro ao processar os dados do arquivo.")
 else:
     st.info(tr["wait"])
