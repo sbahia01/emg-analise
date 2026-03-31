@@ -6,17 +6,17 @@ from scipy.signal import butter, filtfilt
 from scipy.integrate import simpson
 
 # ==========================================================
-# 1. DEFINIÇÃO DA PALETA HUB ACADEMICA
+# 1. CONFIGURAÇÃO E CORES (HUB ACADEMICA)
 # ==========================================================
-HUB_NAVY = "#001a33"   # Azul Marinho (Barra lateral)
-HUB_BLUE = "#1a73e8"   # Azul Vibrante (Botões e Destaques)
-HUB_BG = "#f0f2f6"     # Cinza de fundo para dar contraste
+HUB_NAVY = "#001a33"
+HUB_BLUE = "#1a73e8"
+HUB_BG = "#f0f2f6"
 WHITE = "#ffffff"
 
 st.set_page_config(page_title="EMGExpert | Hub Academica", layout="wide")
 
 # ==========================================================
-# 2. DICIONÁRIO DE TRADUÇÕES
+# 2. DICIONÁRIO EXPANDIDO (VOLTANDO COM TODAS AS LINHAS)
 # ==========================================================
 LANGS = {
     "PORTUGUÊS (BRASILEIRO)": {
@@ -24,88 +24,64 @@ LANGS = {
         "upload": "Selecione o arquivo (.slk ou .csv)",
         "info": "🖱️ Arraste no gráfico para analisar a contração.",
         "rep": "RELATÓRIO TÉCNICO",
-        "ons": "ONSET (INÍCIO)",
-        "peak": "PICO MÁXIMO",
-        "area": "ÁREA (INTEGRAL)",
+        "interval": "⏱️ Intervalo Selecionado",
+        "ons": "🟢 ONSET (INÍCIO)",
+        "peak": "📈 PICO MÁXIMO",
+        "area": "📊 ÁREA (INTEGRAL)",
         "sync": "Diferença de Sincronismo (Delay)",
         "wait": "Aguardando upload do arquivo...",
         "thresh": "Threshold de detecção"
     },
     "ENGLISH": {
         "title": "EMGExpert — Science Meets Practice",
-        "upload": "Choose file (.slk or .csv)",
-        "info": "🖱️ Drag on the chart to analyze.",
+        "upload": "Choose file",
+        "info": "🖱️ Drag to analyze.",
         "rep": "TECHNICAL REPORT",
-        "ons": "ONSET",
-        "peak": "PEAK AMPLITUDE",
-        "area": "AREA",
+        "interval": "⏱️ Selected Interval",
+        "ons": "🟢 ONSET",
+        "peak": "📈 PEAK AMPLITUDE",
+        "area": "📊 AREA (INTEGRAL)",
         "sync": "Sync Delay",
-        "wait": "Waiting for file...",
+        "wait": "Waiting...",
         "thresh": "Threshold"
     }
 }
 
 # ==========================================================
-# 3. CSS AVANÇADO (RESOLVENDO O PROBLEMA DE CORES)
+# 3. CSS (VISIBILIDADE E ESTILO)
 # ==========================================================
 st.markdown(f"""
     <style>
-    /* Fundo de toda a aplicação */
-    .stApp {{
-        background-color: {HUB_BG} !important;
-    }}
+    .stApp {{ background-color: {HUB_BG} !important; }}
+    [data-testid="stSidebar"] {{ background-color: {HUB_NAVY} !important; }}
+    [data-testid="stSidebar"] * {{ color: {WHITE} !important; }}
     
-    /* Barra Lateral - Navy Blue */
-    [data-testid="stSidebar"] {{
-        background-color: {HUB_NAVY} !important;
-    }}
-    [data-testid="stSidebar"] * {{
-        color: {WHITE} !important;
-    }}
-    
-    /* BOTÃO DE UPLOAD - Resolvendo a invisibilidade */
+    /* Botão de Upload Corrigido */
     section[data-testid="stFileUploadDropzone"] {{
         background-color: {WHITE} !important;
         border: 2px dashed {HUB_BLUE} !important;
         border-radius: 10px !important;
-        padding: 20px !important;
-    }}
-    section[data-testid="stFileUploadDropzone"] i {{
-        color: {HUB_BLUE} !important;
     }}
     
-    /* Títulos e Subtítulos */
-    h1, h2, h3, .stMarkdown p {{
-        color: {HUB_NAVY} !important;
-        font-family: 'Inter', sans-serif;
-    }}
-
-    /* Cartões de Relatório - Brancos sobre o fundo cinza */
     .report-card {{
         background-color: {WHITE} !important;
         border-top: 5px solid {HUB_BLUE} !important;
-        padding: 25px !important;
-        border-radius: 10px !important;
+        padding: 20px !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05) !important;
         color: {HUB_NAVY} !important;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important;
-        margin-bottom: 25px !important;
-    }}
-    
-    /* Estilização dos Selectboxes */
-    .stSelectbox div[data-baseweb="select"] {{
-        background-color: {WHITE} !important;
+        line-height: 1.6 !important;
     }}
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================================
-# 4. MOTOR TÉCNICO
+# 4. PROCESSAMENTO
 # ==========================================================
 
-def butter_bandpass_filter(data, fs=2000):
+def butter_filter(data, fs=2000):
     nyq = 0.5 * fs
     b, a = butter(4, [6/nyq, 500/nyq], btype='band')
-    if len(data) <= 12: return data
     return filtfilt(b, a, data)
 
 def calculate_rms(data, fs=2000):
@@ -117,21 +93,21 @@ def parse_sylk(file):
     try:
         content = file.getvalue().decode("utf-8", errors="ignore")
         data_map = {}
-        ch_names = {4: "Canal 1", 5: "Canal 2"}
+        names = {4: "Canal 1", 5: "Canal 2"}
         for line in content.splitlines():
             if line.startswith('C;'):
                 p = line.split(';')
                 try:
                     r, c = int(p[1][1:]), int(p[2][1:])
-                    val_raw = p[3]
-                    val = float(val_raw[1:].replace('"','')) if val_raw.startswith('K') else float(val_raw.replace('"',''))
+                    v = p[3]
+                    val = float(v[1:].replace('"','')) if v.startswith('K') else float(v.replace('"',''))
                     if r not in data_map: data_map[r] = {}
                     data_map[r][c] = val
-                    if r == 4 and c in [4, 5]: ch_names[c] = val_raw[1:].replace('"','')
+                    if r == 4 and c in [4, 5]: names[c] = v[1:].replace('"','')
                 except: continue
-        df_raw = pd.DataFrame.from_dict(data_map, orient='index').sort_index()
-        df = pd.DataFrame({'time': df_raw[1].values, 'CH1': df_raw[4].values, 'CH2': df_raw[5].values}).dropna().iloc[5:]
-        return df, [ch_names[4], ch_names[5]]
+        df_r = pd.DataFrame.from_dict(data_map, orient='index').sort_index()
+        df = pd.DataFrame({'time': df_r[1].values, 'CH1': df_r[4].values, 'CH2': df_r[5].values}).dropna().iloc[5:]
+        return df, [names[4], names[5]]
     except: return None, None
 
 # ==========================================================
@@ -148,58 +124,50 @@ with header_col1:
 uploaded_file = st.sidebar.file_uploader(tr["upload"], type=["slk", "csv"])
 
 if uploaded_file:
-    df_emg, labels = parse_sylk(uploaded_file)
-    if df_emg is not None:
-        fs = 2000
-        onsets_results = {}
-        ui_cols = st.columns(2)
-
-        for i, (ch_col, name) in enumerate(zip(['CH1', 'CH2'], labels)):
-            with ui_cols[i]:
+    df, labels = parse_sylk(uploaded_file)
+    if df is not None:
+        onsets = {}
+        cols = st.columns(2)
+        for i, (ch, name) in enumerate(zip(['CH1', 'CH2'], labels)):
+            with cols[i]:
                 st.subheader(name)
-                filt = butter_bandpass_filter(df_emg[ch_col].values)
-                rms_signal = calculate_rms(filt)
+                rms = calculate_rms(butter_filter(df[ch].values))
                 
-                fig = go.Figure(go.Scatter(x=df_emg['time'], y=rms_signal, line=dict(color=HUB_NAVY, width=1.5)))
-                fig.update_layout(
-                    height=400, margin=dict(l=10, r=10, t=10, b=10),
-                    dragmode='select', selectdirection='h',
-                    plot_bgcolor=WHITE, paper_bgcolor='rgba(0,0,0,0)',
-                    newshape=dict(line=dict(color=HUB_BLUE, width=2), fillcolor=HUB_BLUE, opacity=0.3),
-                    xaxis=dict(showgrid=True, gridcolor='#f0f0f0'),
-                    yaxis=dict(showgrid=True, gridcolor='#f0f0f0')
-                )
+                fig = go.Figure(go.Scatter(x=df['time'], y=rms, line=dict(color=HUB_NAVY, width=1.2)))
+                fig.update_layout(height=400, dragmode='select', selectdirection='h', plot_bgcolor=WHITE, margin=dict(l=0,r=0,t=0,b=0))
                 
-                sel = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"p_{ch_col}_{sel_lang}")
+                sel = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"p_{ch}_{sel_lang}")
 
                 if sel and "selection" in sel and "box" in sel["selection"] and len(sel["selection"]["box"]) > 0:
                     t1, t2 = sel["selection"]["box"][0]["x"][0], sel["selection"]["box"][0]["x"][1]
-                    mask = (df_emg['time'] >= t1) & (df_emg['time'] <= t2)
-                    st_time, st_rms = df_emg['time'][mask].values, rms_signal[mask]
+                    mask = (df['time'] >= t1) & (df['time'] <= t2)
+                    s_t, s_r = df['time'][mask].values, rms[mask]
                     
-                    if len(st_rms) > 10:
-                        baseline = rms_signal[:400]
+                    if len(s_r) > 10:
+                        baseline = rms[:400]
                         thr = np.mean(baseline) + (3 * np.std(baseline))
-                        idx = next((j for j in range(len(st_rms)-40) if np.all(st_rms[j:j+40] >= thr)), None)
+                        idx = next((j for j in range(len(s_r)-40) if np.all(s_r[j:j+40] >= thr)), None)
                         
-                        v_max = np.max(st_rms)
-                        v_area = simpson(st_rms, dx=1/fs)
+                        v_max, area = np.max(s_r), simpson(s_r, dx=1/2000)
                         
+                        # RELATÓRIO COMPLETO (VOLTANDO COM TODAS AS LINHAS)
                         st.markdown(f"""
                         <div class="report-card">
-                            <h4 style="margin-top:0;">{tr['rep']}</h4>
-                            • <b>{tr['ons']}:</b> {st_time[idx] if idx else "N/D"} s<br>
+                            <h4 style="margin:0 0 15px 0; color:{HUB_BLUE}; border-bottom:1px solid #eee;">{tr['rep']}</h4>
+                            • <b>{tr['interval']}:</b> {t1:.3f}s — {t2:.3f}s<br>
+                            • <b>{tr['ons']}:</b> {s_t[idx] if idx else "N/D"} s<br>
                             • <b>{tr['peak']}:</b> {v_max:.2f} µV<br>
-                            • <b>{tr['area']}:</b> {v_area:.4f} µV.s<br>
-                            <hr style="border: 0.5px solid #eee">
-                            <small>{tr['thresh']}: {thr:.4f} µV</small>
+                            • <b>{tr['area']}:</b> {area:.4f} µV.s<br>
+                            <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #ddd; font-size:0.85em; color:#666;">
+                                {tr['thresh']}: {thr:.4f} µV
+                            </div>
                         </div>
                         """, unsafe_allow_html=True)
-                        if idx: onsets_results[i] = st_time[idx]
+                        if idx: onsets[i] = s_t[idx]
                 else:
                     st.info(tr["info"])
 
-        if len(onsets_results) == 2:
-            st.success(f"### ⏱️ {tr['sync']}: **{abs(onsets_results[0] - onsets_results[1]) * 1000:.2f} ms**")
+        if len(onsets) == 2:
+            st.success(f"### ⏱️ {tr['sync']}: **{abs(onsets[0]-onsets[1])*1000:.2f} ms**")
 else:
     st.info(tr["wait"])
