@@ -4,19 +4,20 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.signal import butter, filtfilt
 from scipy.integrate import simpson
+import io
 
 # ==========================================================
 # 1. IDENTIDADE VISUAL HUB ACADEMICA (ALTO CONTRASTE)
 # ==========================================================
-HUB_NAVY = "#001a33"   # Azul Marinho Profundo (Barra lateral e Fundo Gráficos)
-HUB_BLUE = "#1a73e8"   # Azul Vibrante (Destaques e Botões)
-HUB_BG = "#eef4ff"     # Azul Gelo (Fundo da Página)
+HUB_NAVY = "#001a33"   # Azul Marinho Profundo
+HUB_BLUE = "#1a73e8"   # Azul Vibrante
+HUB_BG = "#eef4ff"     # Azul Gelo
 WHITE = "#ffffff"
 
 st.set_page_config(page_title="EMGExpert | Hub Academica", layout="wide")
 
 # ==========================================================
-# 2. DICIONÁRIO DE TRADUÇÕES COMPLETO (RESTAURADO)
+# 2. DICIONÁRIO DE TRADUÇÕES COMPLETO
 # ==========================================================
 LANGS = {
     "PORTUGUÊS (BRASILEIRO)": {
@@ -32,7 +33,8 @@ LANGS = {
         "area": "📊 ÁREA (INTEGRAL)",
         "sync": "Diferença de Sincronismo (Delay)",
         "wait": "Aguardando upload do arquivo...",
-        "thresh": "Threshold de detecção aplicado"
+        "thresh": "Threshold de detecção aplicado",
+        "dl_btn": "📥 Baixar Relatório CSV"
     },
     "ENGLISH": {
         "title": "EMGExpert — Science Meets Practice",
@@ -47,7 +49,8 @@ LANGS = {
         "area": "📊 AREA (INTEGRAL)",
         "sync": "Delay",
         "wait": "Waiting...",
-        "thresh": "Threshold"
+        "thresh": "Threshold",
+        "dl_btn": "📥 Download CSV Report"
     },
     "ESPAÑOL": {
         "title": "EMGExpert — Ciencia y Práctica",
@@ -60,7 +63,8 @@ LANGS = {
         "area": "📊 ÁREA (INTEGRAL)",
         "sync": "Delay",
         "wait": "Esperando...",
-        "thresh": "Umbral"
+        "thresh": "Umbral",
+        "dl_btn": "📥 Descargar Informe CSV"
     },
     "CHINESE (SIMPLIFIED)": {
         "title": "EMGExpert — 科学与实践",
@@ -72,7 +76,8 @@ LANGS = {
         "area": "面积",
         "sync": "同步延迟",
         "wait": "等待中...",
-        "thresh": "阈值"
+        "thresh": "阈值",
+        "dl_btn": "📥 下载报告"
     }
 }
 
@@ -87,7 +92,7 @@ st.markdown(f"""
     /* BARRA LATERAL */
     [data-testid="stSidebar"] {{ background-color: {HUB_NAVY} !important; }}
 
-    /* TEXTOS DA BARRA LATERAL (CORRIGIDO PARA BRANCO) */
+    /* TEXTOS DA BARRA LATERAL */
     [data-testid="stSidebar"] label p, 
     [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p,
     [data-testid="stSidebar"] .stFileUploaderFileName {{
@@ -102,15 +107,24 @@ st.markdown(f"""
         border-radius: 10px !important;
     }}
 
-    /* SELETOR DE IDIOMAS (ESTILO EXPLORE TOOLS) */
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] {{
+    /* SELETOR DE IDIOMAS E BOTÃO DE DOWNLOAD (ESTILO EXPLORE TOOLS) */
+    div[data-testid="stSelectbox"] div[data-baseweb="select"],
+    div.stDownloadButton > button {{
         background: linear-gradient(90deg, #1a73e8 0%, #00d4ff 100%) !important;
         border-radius: 50px !important;
         border: none !important;
         color: {WHITE} !important;
-        padding: 2px 18px !important;
+        padding: 8px 25px !important;
         box-shadow: 0 4px 15px rgba(26, 115, 232, 0.3) !important;
+        font-weight: bold !important;
+        transition: 0.3s ease-all !important;
     }}
+    
+    div.stDownloadButton > button:hover {{
+        transform: scale(1.02) !important;
+        box-shadow: 0 6px 20px rgba(26, 115, 232, 0.5) !important;
+    }}
+
     div[data-testid="stSelectbox"] svg {{ fill: {WHITE} !important; }}
 
     /* TÍTULOS E CARTÕES */
@@ -153,20 +167,35 @@ def parse_sylk(file):
     try:
         content = file.getvalue().decode("utf-8", errors="ignore")
         data_map = {}
-        ch_names = {4: "CH 1", 5: "CH 2"}
+        ch_names = {4: "Canal 1", 5: "Canal 2"} # Nomes padrão caso falhe
         for line in content.splitlines():
             if line.startswith('C;'):
                 p = line.split(';')
                 try:
                     r, c = int(p[1][1:]), int(p[2][1:])
                     val_raw = p[3]
-                    val = float(val_raw[1:].replace('"','')) if val_raw.startswith('K') else float(val_raw.replace('"',''))
+                    # Captura valor numérico ou string entre aspas
+                    if val_raw.startswith('K'):
+                        val = float(val_raw[1:].replace('"',''))
+                    else:
+                        val = val_raw.replace('"','')
+                        try: val = float(val)
+                        except: pass
+                    
                     if r not in data_map: data_map[r] = {}
                     data_map[r][c] = val
-                    if r == 4 and c in [4, 5]: ch_names[c] = val_raw[1:].replace('"','')
+                    
+                    # Nomes reais dos canais costumam estar na linha 4 das colunas 4 e 5
+                    if r == 4 and c in [4, 5]:
+                        ch_names[c] = str(val)
                 except: continue
+        
         df_raw = pd.DataFrame.from_dict(data_map, orient='index').sort_index()
-        df = pd.DataFrame({'time': df_raw[1].values, 'CH1': df_raw[4].values, 'CH2': df_raw[5].values}).dropna().iloc[5:]
+        df = pd.DataFrame({
+            'time': df_raw[1].values, 
+            'CH1': df_raw[4].values, 
+            'CH2': df_raw[5].values
+        }).dropna().iloc[5:]
         return df, [ch_names[4], ch_names[5]]
     except Exception as e:
         return None, None
@@ -175,7 +204,6 @@ def parse_sylk(file):
 # 5. UI PRINCIPAL
 # ==========================================================
 
-# Header
 h_col1, h_col2 = st.columns([3, 1])
 with h_col2:
     sel_lang = st.selectbox("Lang", list(LANGS.keys()), label_visibility="collapsed")
@@ -183,7 +211,6 @@ with h_col2:
 with h_col1:
     st.title(tr["title"])
 
-# Sidebar
 uploaded_file = st.sidebar.file_uploader(tr["upload_label"], type=["slk", "csv"])
 
 if uploaded_file:
@@ -191,15 +218,15 @@ if uploaded_file:
     if df_emg is not None:
         fs = 2000
         onsets_results = {}
+        all_metrics = [] # Para o download CSV
         ui_cols = st.columns(2)
 
         for i, (ch_col, name) in enumerate(zip(['CH1', 'CH2'], labels)):
             with ui_cols[i]:
-                st.subheader(name)
+                st.subheader(f"📊 {name}") # Mostra o nome real
                 filt = butter_bandpass_filter(df_emg[ch_col].values)
                 rms_signal = calculate_rms(filt)
                 
-                # GRÁFICO (FUNDO MARINHO + LINHA BRANCA)
                 fig = go.Figure(go.Scatter(
                     x=df_emg['time'], y=rms_signal, 
                     line=dict(color=WHITE, width=1.3)
@@ -215,7 +242,6 @@ if uploaded_file:
                 
                 sel = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"p_{ch_col}_{sel_lang}")
 
-                # Relatório Detalhado (Restaurado com 6 linhas de dados)
                 if sel and "selection" in sel and "box" in sel["selection"] and len(sel["selection"]["box"]) > 0:
                     t1, t2 = sel["selection"]["box"][0]["x"][0], sel["selection"]["box"][0]["x"][1]
                     mask = (df_emg['time'] >= t1) & (df_emg['time'] <= t2)
@@ -228,28 +254,43 @@ if uploaded_file:
                         
                         v_max, v_mean, v_area = np.max(st_rms), np.mean(st_rms), simpson(st_rms, dx=1/fs)
                         duration = t2 - t1
+                        onset_val = st_time[idx] if idx else None
+
+                        # Armazena métricas para o CSV
+                        all_metrics.append({
+                            "Canal": name, "Início Janela": t1, "Fim Janela": t2,
+                            "Duração": duration, "Onset": onset_val, "Pico": v_max,
+                            "RMS Médio": v_mean, "Área": v_area
+                        })
 
                         st.markdown(f"""
                         <div class="report-card">
                             <h4 style="margin:0 0 15px 0; color:{HUB_BLUE};">{tr['rep']}</h4>
                             <div class="data-line"><span>{tr['interval']}</span><b>{t1:.3f}s - {t2:.3f}s</b></div>
                             <div class="data-line"><span>{tr['duration']}</span><b>{duration:.3f} s</b></div>
-                            <div class="data-line"><span>{tr['ons']}</span><b>{st_time[idx] if idx else "N/D"} s</b></div>
+                            <div class="data-line"><span>{tr['ons']}</span><b>{onset_val if onset_val else "N/D"} s</b></div>
                             <div class="data-line"><span>{tr['peak']}</span><b>{v_max:.2f} µV</b></div>
                             <div class="data-line"><span>{tr['mean_rms']}</span><b>{v_mean:.2f} µV</b></div>
                             <div class="data-line"><span>{tr['area']}</span><b>{v_area:.4f} µV.s</b></div>
-                            <p style="font-size:0.8em; color:gray; margin-top:15px; border-top:1px dashed #eee; padding-top:8px;">
-                                {tr['thresh']}: {thr:.4f} µV
-                            </p>
                         </div>
                         """, unsafe_allow_html=True)
-                        if idx: onsets_results[i] = st_time[idx]
+                        if onset_val: onsets_results[i] = onset_val
                 else:
                     st.info(tr["info"])
 
-        # Delay de Sincronismo
-        if len(onsets_results) == 2:
-            diff = abs(onsets_results[0] - onsets_results[1]) * 1000
-            st.success(f"### ⏱️ {tr['sync']}: **{diff:.2f} ms**")
+        # COMPARATIVO E DOWNLOAD FINAL
+        st.divider()
+        c1, c2 = st.columns([2, 1])
+        
+        with c1:
+            if len(onsets_results) == 2:
+                diff = abs(onsets_results[0] - onsets_results[1]) * 1000
+                st.success(f"### ⏱️ {tr['sync']}: **{diff:.2f} ms**")
+        
+        with c2:
+            if all_metrics:
+                csv_data = pd.DataFrame(all_metrics).to_csv(index=False).encode('utf-8')
+                st.download_button(tr["dl_btn"], data=csv_data, file_name="relatorio_emg.csv", mime="text/csv")
+
 else:
     st.info(tr["wait"])
