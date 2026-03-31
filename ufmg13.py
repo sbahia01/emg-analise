@@ -7,206 +7,139 @@ from scipy.integrate import simpson
 import io
 
 # ==========================================================
-# 1. CONFIGURAÇÕES GERAIS E ESTILO (PADRÃO UFMG)
+# 1. DICIONÁRIO DE TRADUÇÕES (SISTEMA MULTI-IDIOMA)
 # ==========================================================
-st.set_page_config(page_title="Análise EMG UFMG - Sistema Profissional", layout="wide")
+LANGUAGES = {
+    "PORTUGUÊS (BRASILEIRO)": {
+        "title": "Análise de EMG - Protocolo UFMG",
+        "upload_label": "Carregar arquivo (.slk ou .csv)",
+        "sidebar_cfg": "Configurações",
+        "info_msg": "🖱️ Clique e arraste no gráfico para analisar.",
+        "report_title": "RELATÓRIO TÉCNICO",
+        "interval": "Intervalo Selecionado",
+        "onset": "ONSET",
+        "peak": "PICO MÁXIMO",
+        "t_peak": "TEMPO DO PICO",
+        "area": "ÁREA (INTEGRAL)",
+        "thresh": "Threshold de detecção",
+        "delay_title": "Diferença de Sincronismo (Delay)",
+        "wait_msg": "Aguardando upload do arquivo..."
+    },
+    "ENGLISH": {
+        "title": "EMG Analysis - UFMG Protocol",
+        "upload_label": "Upload file (.slk or .csv)",
+        "sidebar_cfg": "Settings",
+        "info_msg": "🖱️ Click and drag on the chart to analyze.",
+        "report_title": "TECHNICAL REPORT",
+        "interval": "Selected Range",
+        "onset": "ONSET",
+        "peak": "PEAK AMPLITUDE",
+        "t_peak": "PEAK TIME",
+        "area": "AREA (INTEGRAL)",
+        "thresh": "Detection Threshold",
+        "delay_title": "Synchronization Difference (Delay)",
+        "wait_msg": "Waiting for file upload..."
+    },
+    "ESPAÑOL": {
+        "title": "Análisis de EMG - Protocolo UFMG",
+        "upload_label": "Cargar archivo (.slk o .csv)",
+        "sidebar_cfg": "Configuraciones",
+        "info_msg": "🖱️ Haga clic y arrastre en el gráfico para analizar.",
+        "report_title": "INFORME TÉCNICO",
+        "interval": "Intervalo Seleccionado",
+        "onset": "COMIENZO (ONSET)",
+        "peak": "PICO MÁXIMO",
+        "t_peak": "TIEMPO DEL PICO",
+        "area": "ÁREA (INTEGRAL)",
+        "thresh": "Umbral de detección",
+        "delay_title": "Diferencia de Sincronismo (Delay)",
+        "wait_msg": "Esperando carga de archivo..."
+    },
+    "CHINESE (SIMPLIFIED)": {
+        "title": "肌电图分析 - UFMG 协议",
+        "upload_label": "上传文件 (.slk 或 .csv)",
+        "sidebar_cfg": "设置",
+        "info_msg": "🖱️ 在图表上点击并拖动以进行分析。",
+        "report_title": "技术报告",
+        "interval": "选定范围",
+        "onset": "起始点 (Onset)",
+        "peak": "最大峰值",
+        "t_peak": "峰值时间",
+        "area": "面积 (积分)",
+        "thresh": "检测阈值",
+        "delay_title": "同步差异 (延迟)",
+        "wait_msg": "等待文件上传..."
+    }
+}
+
+# ==========================================================
+# 2. CONFIGURAÇÕES GERAIS
+# ==========================================================
+st.set_page_config(page_title="EMG UFMG Multi-Lang", layout="wide")
+
+# Seletor de Idioma no topo superior direito (usando colunas)
+col_title, col_lang = st.columns([4, 1])
+
+with col_lang:
+    selected_lang = st.selectbox("🌐 Language/Idioma", list(LANGUAGES.keys()))
+    t = LANGUAGES[selected_lang] # Atalho para o dicionário de tradução
+
+with col_title:
+    st.title(t["title"])
 
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; color: #000000; }
     .report-box { 
-        border: 2px solid #000000; 
-        padding: 20px; 
-        background-color: #f9f9f9; 
-        color: #000000;
+        border: 2px solid #000000; padding: 15px; 
+        background-color: #f9f9f9; color: #000000;
         font-family: 'Courier New', Courier, monospace;
-        margin-top: 15px;
-        box-shadow: 4px 4px 0px #cccccc;
+        margin-top: 10px; box-shadow: 4px 4px 0px #cccccc;
     }
-    .status-msg { font-weight: bold; color: #2e7d32; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================================
-# 2. FUNÇÕES TÉCNICAS ORIGINAIS (FILTROS E CÁLCULOS)
+# 3. FUNÇÕES TÉCNICAS (MATEMÁTICA NÃO MUDA COM IDIOMA)
 # ==========================================================
 
 def butter_bandpass(lowcut, highcut, fs, order=4):
     nyq = 0.5 * fs
-    low = lowcut / nyq
-    high = highcut / nyq
-    b, a = butter(order, [low, high], btype='band')
+    b, a = butter(order, [lowcut/nyq, highcut/nyq], btype='band')
     return b, a
 
 def apply_emg_filter(data, fs=2000):
-    """Aplica o filtro Butterworth de 4ª ordem (6-500Hz) e retificação."""
-    if len(data) < 15: # Proteção contra dados curtos
-        return data
+    if len(data) < 15: return data
     b, a = butter_bandpass(6, 500, fs, order=4)
-    # Filtro e remoção de Offset (Média)
     y = filtfilt(b, a, data)
-    rectified = np.abs(y - np.mean(y))
-    return rectified
+    return np.abs(y - np.mean(y))
 
-def calculate_rms_signal(rectified_data, fs=2000, window_ms=10):
-    """Calcula o sinal RMS com janela de 10ms conforme protocolo UFMG."""
-    window_size = int(fs * (window_ms / 1000))
-    if window_size < 1: window_size = 1
-    # Convolução para média móvel quadrática
-    rms = np.sqrt(np.convolve(rectified_data**2, np.ones(window_size)/window_size, mode='same'))
-    return rms
+def calculate_rms_signal(rectified_data, fs=2000):
+    window_size = int(fs * 0.01)
+    return np.sqrt(np.convolve(rectified_data**2, np.ones(window_size)/window_size, mode='same'))
 
 def detect_onset(rms_segment, full_rms, fs=2000):
-    """Detecta Onset usando baseline fixa (400 pontos iniciais)."""
-    # Baseline: Primeiros 200ms (400 pontos a 2000Hz)
     baseline = full_rms[:400]
     thresh = np.mean(baseline) + (3 * np.std(baseline))
-    
-    # Busca 20ms consecutivos acima do threshold
     check_samples = int(0.020 * fs) 
     for i in range(len(rms_segment) - check_samples):
         if np.all(rms_segment[i : i + check_samples] >= thresh):
             return i, thresh
     return None, thresh
 
-# ==========================================================
-# 3. LEITURA DE ARQUIVOS .SLK (ROBUSTEZ TOTAL)
-# ==========================================================
-
 def parse_slk_file(uploaded_file):
-    """Lê arquivos SYLK (.slk) extraindo tempo e canais 4 e 5."""
     try:
         content = uploaded_file.getvalue().decode("utf-8", errors="ignore")
-        lines = content.splitlines()
-        
         data_map = {}
-        ch_names = {4: "Canal 1", 5: "Canal 2"}
-        
-        for line in lines:
+        ch_names = {4: "CH1", 5: "CH2"}
+        for line in content.splitlines():
             if line.startswith('C;'):
                 parts = line.split(';')
                 try:
-                    # C;Yrow;Xcol;Kvalue
-                    r = int(parts[1][1:])
-                    c = int(parts[2][1:])
+                    r, c = int(parts[1][1:]), int(parts[2][1:])
                     v_part = parts[3]
-                    
-                    if v_part.startswith('K'):
-                        val = float(v_part[1:].replace('"', ''))
-                    else:
-                        val = float(v_part.replace('"', ''))
-                    
+                    val = float(v_part[1:].replace('"', '')) if v_part.startswith('K') else float(v_part.replace('"', ''))
                     if r not in data_map: data_map[r] = {}
                     data_map[r][c] = val
-                    
-                    # Captura nomes de músculos na linha 4
                     if r == 4 and c in [4, 5] and v_part.startswith('K'):
                         ch_names[c] = v_part[1:].replace('"', '')
-                except: continue
-        
-        # Organiza os dados em DataFrame
-        df_rows = pd.DataFrame.from_dict(data_map, orient='index').sort_index()
-        df_data = df_rows.loc[df_rows.index > 5].copy() # Pula cabeçalhos
-        
-        final_df = pd.DataFrame({
-            'time': df_data[1].values,
-            'CH1': df_data[4].values,
-            'CH2': df_data[5].values
-        }).dropna()
-        
-        return final_df, [ch_names[4], ch_names[5]]
-    except Exception as e:
-        st.error(f"Erro ao processar arquivo .slk: {e}")
-        return None, None
-
-# ==========================================================
-# 4. INTERFACE E SELEÇÃO MANUAL VIA PLOTLY
-# ==========================================================
-
-st.title("Análise de EMG - Protocolo UFMG Profissional")
-st.sidebar.header("Configurações")
-
-file = st.sidebar.file_uploader("Carregar arquivo (.slk ou .csv)", type=["slk", "csv"])
-
-if file:
-    # Cache para não reprocessar o arquivo a cada clique no gráfico
-    if 'data' not in st.session_state or st.session_state.get('filename') != file.name:
-        df, labels = parse_slk_file(file)
-        if df is not None:
-            st.session_state.data = df
-            st.session_state.labels = labels
-            st.session_state.filename = file.name
-        else:
-            st.stop()
-
-    df = st.session_state.data
-    labels = st.session_state.labels
-    fs = 2000
-    onsets_final = {}
-
-    col1, col2 = st.columns(2)
-
-    for i, (ch_key, label) in enumerate(zip(['CH1', 'CH2'], labels)):
-        with (col1 if i == 0 else col2):
-            st.subheader(label)
-            
-            # Processamento rigoroso
-            rectified = apply_emg_filter(df[ch_key].values, fs)
-            rms_full = calculate_rms_signal(rectified, fs)
-            
-            # Gráfico interativo configurado para SELEÇÃO MANUAL
-            fig = go.Figure(go.Scatter(x=df['time'], y=rms_full, line=dict(color='black', width=1)))
-            fig.update_layout(
-                height=400, margin=dict(l=10, r=10, t=10, b=10),
-                dragmode='select', selectdirection='h', # Habilita seleção horizontal
-                plot_bgcolor='white',
-                xaxis=dict(showgrid=True, gridcolor='#f0f0f0', title="Tempo (s)"),
-                yaxis=dict(showgrid=True, gridcolor='#f0f0f0', title="µV")
-            )
-            
-            # Gatilho de seleção manual
-            # Importante: on_select="rerun" faz o Streamlit capturar a caixa desenhada
-            sel_event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"sel_{ch_key}")
-
-            # ANÁLISE DOS DADOS SELECIONADOS
-            if sel_event and "selection" in sel_event and "box" in sel_event["selection"] and len(sel_event["selection"]["box"]) > 0:
-                t_in = sel_event["selection"]["box"][0]["x"][0]
-                t_out = sel_event["selection"]["box"][0]["x"][1]
-                
-                # Recorte temporal
-                mask = (df['time'] >= t_in) & (df['time'] <= t_out)
-                seg_time = df['time'][mask].values
-                seg_rms = rms_full[mask]
-                
-                if len(seg_rms) > 40:
-                    idx, thr = detect_onset(seg_rms, rms_full, fs)
-                    v_max = np.max(seg_rms)
-                    t_max = seg_time[np.argmax(seg_rms)]
-                    area = simpson(seg_rms, dx=1/fs)
-                    
-                    st.markdown(f"""
-                    <div class="report-box">
-                        <strong>RELATÓRIO TÉCNICO: {label.upper()}</strong><br><br>
-                        • Intervalo Selecionado: {t_in:.2f}s - {t_out:.2f}s<br>
-                        • 🟢 <b>ONSET:</b> {seg_time[idx] if idx is not None else "N/D"} s<br>
-                        • 🔴 <b>PICO MÁXIMO:</b> {v_max:.2f} µV<br>
-                        • ⏱️ <b>TEMPO DO PICO:</b> {t_max:.4f} s<br>
-                        • 📊 <b>ÁREA (INTEGRAL):</b> {area:.4f} µV.s<br>
-                        <hr>
-                        <small>Threshold de detecção: {thr:.4f} µV</small>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if idx is not None:
-                        onsets_final[i] = seg_time[idx]
-            else:
-                st.info(f"🖱️ Clique e arraste no gráfico do **{label}** para realizar a análise.")
-
-    # CÁLCULO DE DELAY (SINCRONISMO)
-    if len(onsets_final) == 2:
-        st.write("---")
-        delay = abs(onsets_final[0] - onsets_final[1]) * 1000
-        st.success(f"### ⏱️ Diferença de Sincronismo (Delay): **{delay:.2f} ms**")
-
-else:
-    st.info("Aguardando upload do arquivo para iniciar a análise.")
