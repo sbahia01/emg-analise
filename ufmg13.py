@@ -6,7 +6,7 @@ from scipy.signal import butter, filtfilt
 from scipy.integrate import simpson
 
 # ==========================================================
-# 1. CONFIGURAÇÃO E CORES (HUB ACADEMICA)
+# 1. IDENTIDADE HUB ACADEMICA
 # ==========================================================
 HUB_NAVY = "#001a33"
 HUB_BLUE = "#1a73e8"
@@ -16,76 +16,61 @@ WHITE = "#ffffff"
 st.set_page_config(page_title="EMGExpert | Hub Academica", layout="wide")
 
 # ==========================================================
-# 2. DICIONÁRIO EXPANDIDO (VOLTANDO COM TODAS AS LINHAS)
+# 2. DICIONÁRIO DE DADOS COMPLETO (RESTAURADO)
 # ==========================================================
 LANGS = {
     "PORTUGUÊS (BRASILEIRO)": {
         "title": "EMGExpert — Ciência Encontra a Prática",
-        "upload": "Selecione o arquivo (.slk ou .csv)",
-        "info": "🖱️ Arraste no gráfico para analisar a contração.",
-        "rep": "RELATÓRIO TÉCNICO",
-        "interval": "⏱️ Intervalo Selecionado",
-        "ons": "🟢 ONSET (INÍCIO)",
-        "peak": "📈 PICO MÁXIMO",
-        "area": "📊 ÁREA (INTEGRAL)",
+        "upload": "Carregar arquivo (.slk ou .csv)",
+        "info": "🖱️ Selecione uma área no gráfico para análise profunda.",
+        "rep": "RELATÓRIO TÉCNICO DETALHADO",
+        "interval": "⏱️ Janela de Tempo",
+        "duration": "⏳ Duração da Seleção",
+        "ons": "🟢 ONSET (Início)",
+        "peak": "📈 PICO MÁXIMO (Amplitude)",
+        "mean_rms": "🌊 RMS MÉDIO",
+        "area": "📊 ÁREA (Integral)",
         "sync": "Diferença de Sincronismo (Delay)",
-        "wait": "Aguardando upload do arquivo...",
-        "thresh": "Threshold de detecção"
-    },
-    "ENGLISH": {
-        "title": "EMGExpert — Science Meets Practice",
-        "upload": "Choose file",
-        "info": "🖱️ Drag to analyze.",
-        "rep": "TECHNICAL REPORT",
-        "interval": "⏱️ Selected Interval",
-        "ons": "🟢 ONSET",
-        "peak": "📈 PEAK AMPLITUDE",
-        "area": "📊 AREA (INTEGRAL)",
-        "sync": "Sync Delay",
-        "wait": "Waiting...",
-        "thresh": "Threshold"
+        "wait": "Aguardando arquivo...",
+        "thresh": "Threshold de detecção aplicado"
     }
 }
 
 # ==========================================================
-# 3. CSS (VISIBILIDADE E ESTILO)
+# 3. CSS (FOCO EM LEITURA DE DADOS)
 # ==========================================================
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {HUB_BG} !important; }}
     [data-testid="stSidebar"] {{ background-color: {HUB_NAVY} !important; }}
-    [data-testid="stSidebar"] * {{ color: {WHITE} !important; }}
     
-    /* Botão de Upload Corrigido */
-    section[data-testid="stFileUploadDropzone"] {{
-        background-color: {WHITE} !important;
-        border: 2px dashed {HUB_BLUE} !important;
-        border-radius: 10px !important;
-    }}
-    
+    /* Card de Dados Estilo Tabela */
     .report-card {{
         background-color: {WHITE} !important;
-        border-top: 5px solid {HUB_BLUE} !important;
+        border-left: 8px solid {HUB_BLUE} !important;
         padding: 20px !important;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05) !important;
+        border-radius: 4px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
         color: {HUB_NAVY} !important;
-        line-height: 1.6 !important;
+    }}
+    .data-line {{
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #eee;
+        padding: 5px 0;
     }}
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================================
-# 4. PROCESSAMENTO
+# 4. FUNÇÕES TÉCNICAS
 # ==========================================================
 
-def butter_filter(data, fs=2000):
+def process_emg(data, fs=2000):
     nyq = 0.5 * fs
     b, a = butter(4, [6/nyq, 500/nyq], btype='band')
-    return filtfilt(b, a, data)
-
-def calculate_rms(data, fs=2000):
-    rectified = np.abs(data - np.mean(data))
+    filt = filtfilt(b, a, data)
+    rectified = np.abs(filt - np.mean(filt))
     window = int(fs * 0.01)
     return np.sqrt(np.convolve(rectified**2, np.ones(window)/window, mode='same'))
 
@@ -93,7 +78,7 @@ def parse_sylk(file):
     try:
         content = file.getvalue().decode("utf-8", errors="ignore")
         data_map = {}
-        names = {4: "Canal 1", 5: "Canal 2"}
+        names = {4: "CH 1", 5: "CH 2"}
         for line in content.splitlines():
             if line.startswith('C;'):
                 p = line.split(';')
@@ -106,68 +91,69 @@ def parse_sylk(file):
                     if r == 4 and c in [4, 5]: names[c] = v[1:].replace('"','')
                 except: continue
         df_r = pd.DataFrame.from_dict(data_map, orient='index').sort_index()
-        df = pd.DataFrame({'time': df_r[1].values, 'CH1': df_r[4].values, 'CH2': df_r[5].values}).dropna().iloc[5:]
+        df = pd.DataFrame({'t': df_r[1].values, 'c1': df_r[4].values, 'c2': df_r[5].values}).dropna().iloc[5:]
         return df, [names[4], names[5]]
     except: return None, None
 
 # ==========================================================
-# 5. INTERFACE
+# 5. UI E LOGA DE ANÁLISE
 # ==========================================================
 
-header_col1, header_col2 = st.columns([4, 1])
-with header_col2:
-    sel_lang = st.selectbox("🌐 Language", list(LANGS.keys()))
-    tr = LANGS[sel_lang]
-with header_col1:
-    st.title(tr["title"])
+tr = LANGS["PORTUGUÊS (BRASILEIRO)"]
+st.title(tr["title"])
 
-uploaded_file = st.sidebar.file_uploader(tr["upload"], type=["slk", "csv"])
+up = st.sidebar.file_uploader(tr["upload"], type=["slk", "csv"])
 
-if uploaded_file:
-    df, labels = parse_sylk(uploaded_file)
+if up:
+    df, labels = parse_sylk(up)
     if df is not None:
         onsets = {}
-        cols = st.columns(2)
-        for i, (ch, name) in enumerate(zip(['CH1', 'CH2'], labels)):
-            with cols[i]:
+        ui_cols = st.columns(2)
+        
+        for i, (col, name) in enumerate(zip(['c1', 'c2'], labels)):
+            with ui_cols[i]:
                 st.subheader(name)
-                rms = calculate_rms(butter_filter(df[ch].values))
+                rms = process_emg(df[col].values)
                 
-                fig = go.Figure(go.Scatter(x=df['time'], y=rms, line=dict(color=HUB_NAVY, width=1.2)))
-                fig.update_layout(height=400, dragmode='select', selectdirection='h', plot_bgcolor=WHITE, margin=dict(l=0,r=0,t=0,b=0))
-                
-                sel = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"p_{ch}_{sel_lang}")
+                fig = go.Figure(go.Scatter(x=df['t'], y=rms, line=dict(color=HUB_NAVY, width=1.5)))
+                fig.update_layout(height=380, dragmode='select', selectdirection='h', plot_bgcolor=WHITE, margin=dict(l=0,r=0,t=0,b=0))
+                sel = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"p_{col}")
 
                 if sel and "selection" in sel and "box" in sel["selection"] and len(sel["selection"]["box"]) > 0:
                     t1, t2 = sel["selection"]["box"][0]["x"][0], sel["selection"]["box"][0]["x"][1]
-                    mask = (df['time'] >= t1) & (df['time'] <= t2)
-                    s_t, s_r = df['time'][mask].values, rms[mask]
+                    mask = (df['t'] >= t1) & (df['t'] <= t2)
+                    st_t, st_rms = df['t'][mask].values, rms[mask]
                     
-                    if len(s_r) > 10:
+                    if len(st_rms) > 10:
+                        # Cálculo de Onset robusto
                         baseline = rms[:400]
                         thr = np.mean(baseline) + (3 * np.std(baseline))
-                        idx = next((j for j in range(len(s_r)-40) if np.all(s_r[j:j+40] >= thr)), None)
+                        idx = next((j for j in range(len(st_rms)-40) if np.all(st_rms[j:j+40] >= thr)), None)
                         
-                        v_max, area = np.max(s_r), simpson(s_r, dx=1/2000)
-                        
-                        # RELATÓRIO COMPLETO (VOLTANDO COM TODAS AS LINHAS)
+                        # NOVOS DADOS ADICIONADOS AQUI:
+                        v_max = np.max(st_rms)
+                        v_mean = np.mean(st_rms)
+                        v_area = simpson(st_rms, dx=1/2000)
+                        duration = t2 - t1
+
                         st.markdown(f"""
                         <div class="report-card">
-                            <h4 style="margin:0 0 15px 0; color:{HUB_BLUE}; border-bottom:1px solid #eee;">{tr['rep']}</h4>
-                            • <b>{tr['interval']}:</b> {t1:.3f}s — {t2:.3f}s<br>
-                            • <b>{tr['ons']}:</b> {s_t[idx] if idx else "N/D"} s<br>
-                            • <b>{tr['peak']}:</b> {v_max:.2f} µV<br>
-                            • <b>{tr['area']}:</b> {area:.4f} µV.s<br>
-                            <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #ddd; font-size:0.85em; color:#666;">
-                                {tr['thresh']}: {thr:.4f} µV
-                            </div>
+                            <h4 style="margin:0 0 10px 0;">{tr['rep']}</h4>
+                            <div class="data-line"><span>{tr['interval']}</span><b>{t1:.2f}s - {t2:.2f}s</b></div>
+                            <div class="data-line"><span>{tr['duration']}</span><b>{duration:.3f} s</b></div>
+                            <div class="data-line"><span>{tr['ons']}</span><b>{st_t[idx] if idx else "N/D"} s</b></div>
+                            <div class="data-line"><span>{tr['peak']}</span><b>{v_max:.2f} µV</b></div>
+                            <div class="data-line"><span>{tr['mean_rms']}</span><b>{v_mean:.2f} µV</b></div>
+                            <div class="data-line"><span>{tr['area']}</span><b>{v_area:.4f} µV.s</b></div>
+                            <p style="font-size:0.8em; color:gray; margin-top:10px;">{tr['thresh']}: {thr:.4f} µV</p>
                         </div>
                         """, unsafe_allow_html=True)
-                        if idx: onsets[i] = s_t[idx]
+                        if idx: onsets[i] = st_t[idx]
                 else:
                     st.info(tr["info"])
 
         if len(onsets) == 2:
-            st.success(f"### ⏱️ {tr['sync']}: **{abs(onsets[0]-onsets[1])*1000:.2f} ms**")
+            diff = abs(onsets[0] - onsets[1]) * 1000
+            st.success(f"### ⏱️ {tr['sync']}: **{diff:.2f} ms**")
 else:
     st.info(tr["wait"])
